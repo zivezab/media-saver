@@ -14,10 +14,16 @@ echo "Using $PY ($($PY -V 2>&1))"
 # An existing venv is pinned to the interpreter that built it, so a stale one
 # (say, the deprecated 3.9) has to be replaced rather than reused.
 if [ -x .venv/bin/python ]; then
-  have=$(./.venv/bin/python -c 'import sys;print("%d.%d"%sys.version_info[:2])')
+  have=$(./.venv/bin/python -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null || echo "?")
   want=$("$PY" -c 'import sys;print("%d.%d"%sys.version_info[:2])')
+  # A venv hard-codes absolute paths. If the directory has been moved, bin/python
+  # still runs (it is a symlink) but every console script - pip, yt-dlp - keeps a
+  # dead shebang, so check that one of them actually executes.
   if [ "$have" != "$want" ]; then
     echo "Replacing existing venv (Python $have) with Python $want"
+    rm -rf .venv
+  elif ! ./.venv/bin/pip --version >/dev/null 2>&1; then
+    echo "Existing venv is broken (it looks like it was moved); recreating it"
     rm -rf .venv
   fi
 fi

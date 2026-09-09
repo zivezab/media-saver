@@ -153,6 +153,11 @@ def clean_error(exc):
     msg = re.sub(r"^\[[\w:.-]+\]\s*(?:[\w-]+:\s+)?", "", msg).strip()
     lowered = msg.lower()
 
+    if "no video could be found" in lowered:
+        # The X, Bluesky and Tumblr extractors discard photo media before building
+        # formats, so a picture-only post reports "no video".
+        return ("That post has no video in it. Photos cannot be saved from X, "
+                "Bluesky or Tumblr - those extractors handle video and GIFs only.")
     if "unsupported url" in lowered:
         return ("This site isn't supported. Try the direct link to the post itself, "
                 "or a direct link to the media file.")
