@@ -203,6 +203,25 @@ skip back 5 / forward 15, track and speed options, and a rotate button.
 Tapping the "Saved - tap to play" notification lands in the same player rather
 than handing the file to another app.
 
+**Zoom**: pinch with two fingers to magnify up to 6x, and drag with two fingers
+to move around while magnified. The on-screen `+` and `-` buttons do the same in
+half steps, and the scale badge doubles as the way back to 1x. A separate button
+switches between fitting the whole frame and cropping it to fill the screen,
+which is what removes the black bars on a phone held upright.
+
+Two implementation details are load-bearing:
+
+- The player is inflated from `res/layout/player_view.xml` purely to set
+  `surface_type="texture_view"`, which cannot be set in code. PlayerView
+  defaults to a SurfaceView, which is punched through the window and ignores a
+  parent's scale - zooming would move the controls and leave the picture where
+  it was.
+- Zoom gestures are read on the pointer **Initial** pass, and only when two or
+  more fingers are down. PlayerView is a real Android View and consumes the
+  touches it receives, so an ordinary gesture modifier on the parent never sees
+  them; taking only multi-finger events leaves single taps to the player's own
+  controller.
+
 The player still offers **open in another app**, and that is not decoration:
 ExoPlayer will not decode everything a phone's stock player might, and 2160p
 and 1440p from YouTube are VP9 remuxed into MP4. When playback fails, the
