@@ -1,4 +1,17 @@
+# python / server
 .venv/
 .work/
 __pycache__/
 *.pyc
+
+# android / gradle
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/captures/
+*.apk
+*.aab
+.idea/
+*.iml
+.DS_Store
