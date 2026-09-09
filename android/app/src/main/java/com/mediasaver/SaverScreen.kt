@@ -1,5 +1,8 @@
 package com.mediasaver
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,15 +17,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -33,7 +33,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -42,18 +41,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import android.content.Intent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -72,19 +67,50 @@ fun SaverScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val jobs by DownloadRepository.jobs.collectAsState()
+    val init by Extractor.init.collectAsState()
     val saved by DownloadHistory.items.collectAsState()
     val signedIn by CookieStore.signedIn.collectAsState()
-    var showAccounts by remember { mutableStateOf(false) }
-    val init by Extractor.init.collectAsState()
+    val settings by Settings.state.collectAsState()
+
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // A link shared from another app is looked up as soon as the extractor is
-    // ready, so the user does not have to press anything.
+    var showAccounts by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<SavedItem?>(null) }
+    var confirmDedupe by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+
+    // While a lookup is running the field is read-only, so the URL cannot change
+    // underneath the request that is already in flight.
+    val busy = state.looking
+    val ready = init is Extractor.Init.Ready
+
     LaunchedEffect(init) {
-        if (init is Extractor.Init.Ready) {
-            consumeSharedUrl()?.let { viewModel.submitSharedUrl(it) }
+        if (ready) consumeSharedUrl()?.let { viewModel.submitSharedUrl(it) }
+    }
+
+    val visible = remember(saved, query, settings) {
+        saved.filter { DownloadHistory.matches(it, query) }
+            .let { list ->
+                val sorted = when (settings.sortBy) {
+                    Settings.SortBy.DATE -> list.sortedBy { it.savedAt }
+                    Settings.SortBy.SIZE -> list.sortedBy { it.sizeBytes }
+                    Settings.SortBy.NAME -> list.sortedBy { it.displayName.lowercase() }
+                }
+                if (settings.sortDescending) sorted.reversed() else sorted
+            }
+    }
+    val duplicateGroups = remember(saved) { DownloadHistory.duplicateGroups(saved) }
+    val duplicateCount = duplicateGroups.sumOf { it.size - 1 }
+
+    val importCookies = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val result = runCatching { CookieStore.importFrom(context, uri) }.getOrNull()
+            Toast.makeText(context, importMessage(result), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -100,6 +126,9 @@ fun SaverScreen(
                             tint = if (signedIn.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.primary,
                         )
+                    }
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
                 },
             )
@@ -119,8 +148,13 @@ fun SaverScreen(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("Paste a link to a post or video") },
                     singleLine = true,
+                    readOnly = busy,
+                    enabled = !busy,
+                    supportingText = if (busy) {
+                        { Text("Reading the link - the box unlocks when it finishes") }
+                    } else null,
                     trailingIcon = {
-                        if (state.url.isNotEmpty()) {
+                        if (state.url.isNotEmpty() && !busy) {
                             IconButton(onClick = viewModel::clear) {
                                 Icon(Icons.Filled.Close, contentDescription = "Clear")
                             }
@@ -137,22 +171,25 @@ fun SaverScreen(
 
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = {
-                        val text = clipboard.getText()?.text
-                        val url = Extractor.extractUrl(text)
-                        if (url != null) viewModel.submitSharedUrl(url)
-                        else viewModel.onUrlChange(text.orEmpty())
-                    }) {
+                    OutlinedButton(
+                        onClick = {
+                            val text = clipboard.getText()?.text
+                            val url = Extractor.extractUrl(text)
+                            if (url != null) viewModel.submitSharedUrl(url)
+                            else viewModel.onUrlChange(text.orEmpty())
+                        },
+                        enabled = !busy,
+                    ) {
                         Icon(Icons.Filled.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Paste")
                     }
                     Button(
                         onClick = { keyboard?.hide(); viewModel.probe() },
-                        enabled = !state.looking && init is Extractor.Init.Ready,
+                        enabled = !busy && ready,
                         modifier = Modifier.weight(1f),
                     ) {
-                        if (state.looking) {
+                        if (busy) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
                                 strokeWidth = 2.dp,
@@ -240,219 +277,145 @@ fun SaverScreen(
                 items(jobs, key = { it.id }) { job -> JobCard(job) }
             }
 
-            if (saved.isNotEmpty()) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Saved on this phone", style = MaterialTheme.typography.titleSmall)
-                        TextButton(onClick = { DownloadHistory.clear(context) }) { Text("Clear list") }
+            librarySection(
+                entries = visible,
+                settings = settings,
+                query = query,
+                onQueryChange = { query = it },
+                duplicateCount = duplicateCount,
+                onDedupe = { confirmDedupe = true },
+                onSort = { choice ->
+                    Settings.update(context) {
+                        if (it.sortBy == choice) it.copy(sortDescending = !it.sortDescending)
+                        else it.copy(sortBy = choice)
                     }
-                }
-                items(saved, key = { it.id }) { item -> SavedRow(item) }
-            }
+                },
+                onToggleLayout = {
+                    Settings.update(context) {
+                        it.copy(
+                            layout = if (it.layout == Settings.Layout.GRID) Settings.Layout.LIST
+                            else Settings.Layout.GRID
+                        )
+                    }
+                },
+                onPlay = { SavedMedia.open(context, it.uri, it.mimeType) },
+                onShare = { SavedMedia.share(context, it.uri, it.mimeType) },
+                onDelete = { pendingDelete = it },
+            )
 
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
 
-    val importCookies = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            val result = runCatching { CookieStore.importFrom(context, uri) }.getOrNull()
-            val message = when {
-                result == null ->
-                    "That file is not a Netscape cookies.txt. Export it again with a " +
-                        "\"Get cookies.txt\" browser extension."
-                result.sites.isEmpty() ->
-                    // The commonest failure: exported while not actually signed in,
-                    // or for the wrong site. Say so instead of reporting success.
-                    "Imported ${result.cookies} cookies, but none of them is a login " +
-                        "for X, Instagram, Reddit or Vimeo. Sign in to the site in your " +
-                        "browser first, then export again."
-                else -> {
-                    val names = CookieStore.SITES
-                        .filter { it.key in result.sites }
-                        .joinToString { it.label }
-                    "Imported ${result.cookies} cookies. Signed in to $names."
-                }
-            }
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-        }
+    if (showSettings) {
+        SettingsDialog(
+            settings = settings,
+            onChange = { transform -> Settings.update(context, transform) },
+            onDismiss = { showSettings = false },
+        )
     }
 
     if (showAccounts) {
-        AccountsDialog(
+        CookiesDialog(
             signedIn = signedIn,
-            onImport = {
+            onPasteSave = { text, site ->
+                val lines = CookieStore.parseCookies(text, site)
+                val found = CookieStore.sitesIn(lines)
+                if (lines.isEmpty()) {
+                    Toast.makeText(
+                        context,
+                        "That does not look like cookies. Paste a cookies.txt export, or a " +
+                            "\"name=value; ...\" string.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else if (found.isEmpty()) {
+                    // Refuse rather than save something that cannot work.
+                    Toast.makeText(
+                        context,
+                        "No login found in that text - it has no session cookie for X, " +
+                            "Instagram, Reddit or Vimeo. Sign in to the site first, then " +
+                            "export again. Nothing was saved.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    val result = CookieStore.saveLines(context, lines)
+                    showAccounts = false
+                    Toast.makeText(context, importMessage(result), Toast.LENGTH_LONG).show()
+                }
+            },
+            onImportFile = {
                 showAccounts = false
                 importCookies.launch(arrayOf("text/plain", "application/octet-stream", "*/*"))
-            },
-            onDismiss = { showAccounts = false },
-            onSignIn = { site ->
-                showAccounts = false
-                context.startActivity(
-                    Intent(context, LoginActivity::class.java)
-                        .putExtra(LoginActivity.EXTRA_SITE, site.key)
-                )
             },
             onSignOut = {
                 CookieStore.signOut(context)
                 showAccounts = false
             },
+            onDismiss = { showAccounts = false },
+        )
+    }
+
+    pendingDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete this file?") },
+            text = {
+                Text(
+                    "${item.displayName}\n\nThis removes it from ${item.location} on the " +
+                        "phone, not just from this list. It cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ok = DownloadHistory.delete(context, item.id)
+                    pendingDelete = null
+                    Toast.makeText(
+                        context,
+                        if (ok) "Deleted" else "Could not delete that file; removed it from the list.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (confirmDedupe) {
+        val removable = duplicateGroups.flatMap { it.drop(1) }
+        AlertDialog(
+            onDismissRequest = { confirmDedupe = false },
+            title = { Text("Remove duplicates?") },
+            text = {
+                Text(
+                    (if (removable.size == 1)
+                        "1 file looks like a repeat of something you already have"
+                    else
+                        "${removable.size} files look like repeats of things you already have") +
+                        " - same size and name. The newest copy of each is kept; the rest " +
+                        "are deleted from the phone. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val removed = DownloadHistory.deleteAll(context, removable.map { it.id })
+                    confirmDedupe = false
+                    Toast.makeText(context, "Removed $removed duplicates", Toast.LENGTH_SHORT).show()
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDedupe = false }) { Text("Cancel") } },
         )
     }
 }
 
-/**
- * Signing in is what makes login-walled and sensitive posts readable: those are
- * gated on having an account, not on anything the downloader can work around.
- */
-@Composable
-private fun AccountsDialog(
-    signedIn: Set<String>,
-    onImport: () -> Unit,
-    onDismiss: () -> Unit,
-    onSignIn: (CookieStore.Site) -> Unit,
-    onSignOut: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Site sign-ins") },
-        text = {
-            Column {
-                Text(
-                    "X hides posts marked sensitive from signed-out apps, and Vimeo " +
-                        "and Reddit hide everything. Giving the downloader your own " +
-                        "session makes those readable.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Spacer(Modifier.height(14.dp))
-                Button(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
-                    Text("Import a cookies.txt file")
-                }
-                Text(
-                    "On a computer, sign in to the site in your browser, export " +
-                        "cookies.txt with a \"Get cookies.txt\" extension, copy it to " +
-                        "this phone, and pick it here.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                if (signedIn.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Signed in: " + CookieStore.SITES
-                            .filter { it.key in signedIn }
-                            .joinToString { it.label },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        "Stored only on this phone, in the app's private storage. It is " +
-                            "a live session, so sign out if you hand the phone on.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-                Text("Or try signing in here", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    "Most large sites refuse to show a login inside another app, as a " +
-                        "phishing defence - X, Instagram, Reddit and Vimeo all currently " +
-                        "render a blank page. Worth a try for other sites.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(4.dp))
-                CookieStore.SITES.forEach { site ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            site.label,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { onSignIn(site) }) { Text("Open") }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        dismissButton = {
-            if (signedIn.isNotEmpty()) {
-                TextButton(onClick = onSignOut) { Text("Sign out of all") }
-            }
-        },
-    )
-}
-
-@Composable
-private fun SavedRow(item: SavedItem) {
-    val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (item.isAudio) Icons.Filled.Audiotrack else Icons.Filled.Movie,
-                    contentDescription = null,
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        item.displayName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        listOfNotNull(Formats.humanSize(item.sizeBytes), item.location)
-                            .joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                IconButton(onClick = { DownloadHistory.remove(context, item.id) }) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "Remove from list",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            PlayShareRow(
-                onPlay = { SavedMedia.open(context, item.uri, item.mimeType) },
-                onShare = { SavedMedia.share(context, item.uri, item.mimeType) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlayShareRow(onPlay: () -> Unit, onShare: () -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilledTonalButton(onClick = onPlay, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Play")
-        }
-        OutlinedButton(onClick = onShare) {
-            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Share")
-        }
+private fun importMessage(result: CookieStore.ImportResult?): String = when {
+    result == null ->
+        "That file is not a cookies.txt. Export it again with a \"Get cookies.txt\" extension."
+    result.sites.isEmpty() ->
+        "Imported ${result.cookies} cookies, but none is a login for X, Instagram, Reddit " +
+            "or Vimeo. Sign in to the site in your browser first, then export again."
+    else -> {
+        val names = CookieStore.SITES.filter { it.key in result.sites }.joinToString { it.label }
+        "Imported ${result.cookies} cookies. Signed in to $names."
     }
 }
 
@@ -537,9 +500,7 @@ private fun OptionRow(option: Formats.Option, onClick: () -> Unit) {
         } else CardDefaults.cardColors(),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
@@ -592,17 +553,13 @@ private fun JobCard(job: DownloadJob) {
             if (job.status == DownloadJob.Status.SAVING || (job.active && job.progress <= 0f)) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
-                LinearProgressIndicator(
-                    progress = { job.progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                LinearProgressIndicator(progress = { job.progress }, modifier = Modifier.fillMaxWidth())
             }
 
             Spacer(Modifier.height(8.dp))
 
             val message = when (job.status) {
-                DownloadJob.Status.DONE ->
-                    listOfNotNull(job.savedAs, job.savedLocation).joinToString(" · ")
+                DownloadJob.Status.DONE -> listOfNotNull(job.savedAs, job.savedLocation).joinToString(" · ")
                 DownloadJob.Status.FAILED -> job.error ?: "Failed"
                 else -> job.detail
             }
@@ -616,7 +573,7 @@ private fun JobCard(job: DownloadJob) {
                     style = MaterialTheme.typography.bodySmall,
                     color = if (job.status == DownloadJob.Status.FAILED) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
@@ -628,10 +585,15 @@ private fun JobCard(job: DownloadJob) {
             val uri = job.savedUri
             if (job.status == DownloadJob.Status.DONE && uri != null) {
                 Spacer(Modifier.height(10.dp))
-                PlayShareRow(
-                    onPlay = { SavedMedia.open(context, uri, job.mimeType) },
-                    onShare = { SavedMedia.share(context, uri, job.mimeType) },
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { SavedMedia.open(context, uri, job.mimeType) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Play") }
+                    OutlinedButton(onClick = { SavedMedia.share(context, uri, job.mimeType) }) {
+                        Text("Share")
+                    }
+                }
             }
         }
     }

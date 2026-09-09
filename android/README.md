@@ -131,44 +131,87 @@ connected lets it update.
 
 ## Posts that need an account
 
-Some posts are not served to a logged-out client at all. Anything marked
-sensitive on X is the common case, and Vimeo and Reddit now refuse everything.
-This is a gate on having an account, so the app lets you supply your own login
-as a Netscape cookies.txt, which it passes to yt-dlp with `--cookies`.
+Some posts are not served to a logged-out client. Anything marked sensitive on
+X is the common case, and Vimeo and Reddit hide everything. The app passes your
+own session to yt-dlp with `--cookies`.
 
-Tap the account icon in the top bar.
+### Getting cookies, on the phone alone
 
-### Importing cookies.txt (the route that works)
+Android stops any app reading another app's or browser's cookie store, so the
+installed X and Instagram apps **cannot** be read - there is no API for it at
+any permission level, only root. A bookmarklet does not help either: session
+cookies are `HttpOnly` and invisible to page JavaScript.
 
-1. On a computer, sign in to the site in your browser.
-2. Export cookies with a "Get cookies.txt LOCALLY" style extension. Export for
-   the site's domain, or everything.
-3. Copy the file to the phone.
-4. Account icon > **Import a cookies.txt file** > pick it.
+What works without a computer:
 
-The dialog then lists which sites it found a session for. That listing is
-derived by reading the file back and looking for each site's session cookie -
-not from a flag set at import time - so it cannot claim a sign-in that is not
-really there.
+1. Install Firefox for Android (or Kiwi Browser) - both take extensions.
+2. Add "Get cookies.txt LOCALLY".
+3. Sign in to the site there.
+4. Export, then either paste the text into the app or import the file.
 
-### Signing in inside the app (mostly does not work)
+Account icon > paste into the box > **Check and save**, or **Import a
+cookies.txt file**. Both accept a full cookies.txt; the paste box also takes a
+plain `name=value; name=value` string, in which case pick the site first so the
+cookies can be given a domain.
 
-There is also an in-app WebView login, but **X, Instagram, Reddit and Vimeo all
-render a blank page in it**. That is deliberate on their part: embedded
-browsers are a phishing vector, so large sites detect and refuse them. It is
-not a bug in the WebView - point the same code at a normal page and it renders
-fine. The button is kept because it may work for smaller sites.
+Nothing is saved unless the text actually contains a recognised session cookie,
+and the dialog reports which sites it found. That check reads the file back
+rather than trusting what was pasted, so it cannot claim a sign-in that is not
+there. It cannot tell whether the session is still live - only that a login is
+present.
 
 ### Notes for anyone changing this
 
-- The cookie domain is written as `.x.com` with the include-subdomains flag.
-  yt-dlp looks X's session up on `api.x.com`, so a cookie scoped to plain
-  `x.com` would not match and the app would silently stay logged out.
-- A capture only counts if the site's actual session cookie is present. Every
-  site hands a mere visitor throwaway cookies, so accepting "any cookie" would
-  report a successful sign-in for a login that never happened.
+- Domains are matched on the bare host. Exporters disagree about writing
+  `.x.com` with the include-subdomains flag versus a host-only `x.com`; yt-dlp
+  accepts either, so the app must too.
+- A capture only counts if the site's session cookie is present. Every site
+  hands a visitor throwaway cookies, so accepting "any cookie" reports a
+  sign-in that never happened.
 - The file holds a live session. It stays in app-private storage, is never
-  logged, and *Sign out of all* deletes it and clears the WebView's cookies.
+  logged, and *Sign out of all* deletes it.
+- There is no in-app WebView login. It was tried and removed: X, Instagram,
+  Reddit and Vimeo all render a blank page inside another app's WebView, on
+  purpose, because embedded browsers are a phishing vector. The same WebView
+  renders ordinary pages fine, so this is their choice, not a bug.
+
+## The library
+
+Everything the app has saved is listed under the link box, and the list
+survives restarts.
+
+| | |
+| --- | --- |
+| Grouping | By site, so youtube.com and x.com stay apart. Toggle in settings |
+| Search | Substring, or wildcards - `Big*Bunny`, `ep0?.mp4` |
+| Sort | Date, size or name; tap the same sort again to reverse it |
+| Layout | List or grid |
+| Thumbnails | Real poster frames, from MediaStore. Can be turned off |
+| Per item | Play, Share, and Delete with confirmation - Delete removes the file, not just the row |
+| Duplicates | Detected on size plus name; one button removes all but the newest of each, after confirming |
+
+Duplicates are matched on size and name rather than by hashing, deliberately:
+these files run to hundreds of megabytes, and re-reading each one to compare
+digests would cost far more than the problem is worth. Two downloads of the
+same format of the same video have identical byte lengths.
+
+## Settings
+
+Theme (system/light/dark), accent colour (dynamic, or a fixed palette), list or
+grid, sort field and direction, group by site, thumbnails on or off, full file
+path on or off, and the download folder name. Changing the folder affects new
+downloads; files already saved stay where they are.
+
+## File naming
+
+Titles come from arbitrary web pages, so names are made safe for every
+filesystem the file might reach - not just Android's. Path separators, colons
+and the other Windows-illegal characters become underscores; control characters
+and the bidi/zero-width marks that make a name display differently from what it
+is are stripped; leading dots (which hide the file) and trailing dots and spaces
+(which Windows silently drops) are removed; Windows device names like `CON` and
+`LPT1` are prefixed; and the stem is cut to 180 bytes so it stays inside the
+255-byte limit once non-ASCII is encoded.
 
 ## Known limits
 

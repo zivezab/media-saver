@@ -137,6 +137,7 @@ object DownloadRepository {
                     location = saved.location,
                     sizeBytes = sizeBytes,
                     savedAt = System.currentTimeMillis(),
+                    sourceDomain = DownloadHistory.domainOf(url),
                 ),
             )
 
