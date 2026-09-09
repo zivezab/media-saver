@@ -37,12 +37,43 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 ./gradlew :app:assembleDebug
 ```
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Install it on
-a plugged-in phone with USB debugging enabled:
+The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+
+## Installing on a phone
 
 ```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./install.sh
 ```
+
+That is the whole thing. The script finds `adb` for you — it lives inside the
+SDK and is normally not on `PATH`, which is the usual reason a bare `adb`
+command fails — builds the APK if it is missing, checks the phone before trying
+anything, and installs.
+
+| | |
+| --- | --- |
+| `./install.sh` | Install, building first if needed |
+| `./install.sh --build` | Force a rebuild, then install |
+| `./install.sh --reinstall` | Uninstall the existing copy first |
+| `./install.sh --devices` | Just show what adb can see |
+
+It checks the phone's API level and CPU ABI up front, because both fail with
+unhelpful messages otherwise: an Android 9 phone or a 32-bit one would
+otherwise just report a generic install failure.
+
+**On Xiaomi, Redmi and POCO phones** (and some Oppo, Vivo and Realme), USB
+installs are blocked by default and fail with `INSTALL_FAILED_USER_RESTRICTED`,
+or with no reason at all. Turn on both *Install via USB* and *USB debugging
+(Security settings)* in Developer options — both generally require being signed
+into a Mi account, and the phone may need mobile data on before the toggles
+stick. Watch the phone's screen during the install too, since it often shows a
+confirmation prompt that quietly times out. If the install still will not go
+through, the script copies the APK into the phone's Downloads so you can tap it
+in Files and install it that way.
+
+For USB debugging generally: Settings > About phone > tap *Build number* seven
+times, then Settings > Developer options > *USB debugging*, and accept the
+authorisation prompt when you plug the phone in.
 
 `local.properties` holds the SDK path and is not in version control; the build
 creates it, or you can write `sdk.dir=/opt/homebrew/share/android-commandlinetools`
