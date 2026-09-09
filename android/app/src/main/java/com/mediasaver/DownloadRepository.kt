@@ -84,6 +84,7 @@ object DownloadRepository {
                 addOption("--no-mtime")
                 addOption("-f", formatString)
                 addOption("-o", File(workDir, "%(title).80B.%(ext)s").absolutePath)
+                Extractor.applyCookies(this)
                 if (kind != Formats.Kind.AUDIO) addOption("--merge-output-format", "mp4")
             }
 

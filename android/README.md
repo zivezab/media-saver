@@ -129,13 +129,42 @@ update fixed it.
 If downloads start failing after a long period offline, opening the app while
 connected lets it update.
 
+## Posts that need an account
+
+Some posts are not served to a logged-out client at all. Anything marked
+sensitive on X is the common case - yt-dlp reports `NSFW tweet requires
+authentication` - and Vimeo and Reddit now refuse everything. This is a gate on
+having an account, not something the downloader can work around, so the app
+lets you supply your own login.
+
+Tap the account icon in the top bar. Two routes:
+
+**Sign in inside the app.** Opens the site's own login page in a WebView. You
+sign in yourself; the app never sees your password, only the session cookies the
+site sets afterwards. Those are written as a Netscape `cookies.txt` in the app's
+private storage and passed to yt-dlp with `--cookies`.
+
+**Import a cookies.txt file.** Export one from a desktop browser and pick it
+here. This exists because X runs a bot-detection script (Castle) that can refuse
+to render its login form inside a WebView - it fails reliably on an emulator,
+where fingerprinting flags the device. If in-app sign-in shows a blank page on
+your phone, use this instead.
+
+The cookie file holds a live session. It stays in app-private storage, is never
+logged, and *Sign out of all* deletes it and clears the WebView's cookies.
+
+One detail that matters if you touch this code: the cookie domain is written as
+`.x.com` with the include-subdomains flag set. yt-dlp looks the session up on
+`api.x.com`, so a cookie scoped to plain `x.com` would not be found and the app
+would silently stay logged out.
+
 ## Known limits
 
 - **Playlists** are not supported; a playlist link resolves to the first video.
   Use the server app for playlists.
-- **Sites that require an account** (Vimeo and Reddit both do now) cannot be read,
-  since there is no way to supply your login. The server app can, via browser
-  cookies.
+- **Sensitive and login-walled posts** need a sign-in; see above. Whether X's
+  in-app login works on a given device depends on its bot detection, so the
+  cookies.txt import is the reliable route.
 - **Android 10 (API 29) and above.** This is what lets the app save without a
   storage permission.
 - **2160p and 1440p from YouTube are VP9**, because no H.264 exists at those
