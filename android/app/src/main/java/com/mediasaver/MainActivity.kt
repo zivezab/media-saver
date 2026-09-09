@@ -23,13 +23,23 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        const val ACTION_PLAY = "com.mediasaver.action.PLAY"
+        const val EXTRA_PLAY_URI = "play_uri"
+        const val EXTRA_PLAY_MIME = "play_mime"
+        const val EXTRA_PLAY_NAME = "play_name"
+        const val EXTRA_PLAY_LOCATION = "play_location"
+    }
+
     private var pendingSharedUrl: String? = null
+    private var pendingPlay: SavedItem? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         pendingSharedUrl = urlFromIntent(intent)
+        pendingPlay = playFromIntent(intent)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val launcher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -42,6 +52,7 @@ class MainActivity : ComponentActivity() {
                 SaverScreen(
                     viewModel = vm,
                     consumeSharedUrl = { pendingSharedUrl.also { pendingSharedUrl = null } },
+                    consumePlayRequest = { pendingPlay.also { pendingPlay = null } },
                 )
             }
         }
@@ -51,8 +62,26 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingSharedUrl = urlFromIntent(intent)
-        // Re-enter composition so the new link is picked up.
+        pendingPlay = playFromIntent(intent)
+        // Re-enter composition so the new intent is picked up.
         recreate()
+    }
+
+    /** A "tap to play" notification carries the file it just saved. */
+    private fun playFromIntent(intent: Intent?): SavedItem? {
+        if (intent?.action != ACTION_PLAY) return null
+        val uri = intent.getStringExtra(EXTRA_PLAY_URI) ?: return null
+        val name = intent.getStringExtra(EXTRA_PLAY_NAME).orEmpty()
+        return SavedItem(
+            id = uri,
+            title = name,
+            displayName = name,
+            uri = uri,
+            mimeType = intent.getStringExtra(EXTRA_PLAY_MIME) ?: "video/*",
+            location = intent.getStringExtra(EXTRA_PLAY_LOCATION).orEmpty(),
+            sizeBytes = 0,
+            savedAt = System.currentTimeMillis(),
+        )
     }
 
     private fun urlFromIntent(intent: Intent?): String? {

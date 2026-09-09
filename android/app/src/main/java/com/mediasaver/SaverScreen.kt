@@ -64,6 +64,7 @@ import coil.compose.AsyncImage
 fun SaverScreen(
     viewModel: MainViewModel,
     consumeSharedUrl: () -> String?,
+    consumePlayRequest: () -> SavedItem? = { null },
 ) {
     val state by viewModel.state.collectAsState()
     val jobs by DownloadRepository.jobs.collectAsState()
@@ -80,6 +81,7 @@ fun SaverScreen(
     var showSettings by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<SavedItem?>(null) }
     var confirmDedupe by remember { mutableStateOf(false) }
+    var playing by remember { mutableStateOf<SavedItem?>(null) }
     var query by remember { mutableStateOf("") }
 
     // While a lookup is running the field is read-only, so the URL cannot change
@@ -89,6 +91,10 @@ fun SaverScreen(
 
     LaunchedEffect(init) {
         if (ready) consumeSharedUrl()?.let { viewModel.submitSharedUrl(it) }
+    }
+
+    LaunchedEffect(Unit) {
+        consumePlayRequest()?.let { playing = it }
     }
 
     val visible = remember(saved, query, settings) {
@@ -274,7 +280,21 @@ fun SaverScreen(
                         }
                     }
                 }
-                items(jobs, key = { it.id }) { job -> JobCard(job) }
+                items(jobs, key = { it.id }) { job ->
+                    JobCard(job) { uri ->
+                        playing = saved.firstOrNull { it.uri == uri }
+                            ?: SavedItem(
+                                id = job.id,
+                                title = job.label,
+                                displayName = job.savedAs ?: job.label,
+                                uri = uri,
+                                mimeType = job.mimeType ?: "video/*",
+                                location = job.savedLocation.orEmpty(),
+                                sizeBytes = 0,
+                                savedAt = System.currentTimeMillis(),
+                            )
+                    }
+                }
             }
 
             librarySection(
@@ -298,7 +318,7 @@ fun SaverScreen(
                         )
                     }
                 },
-                onPlay = { SavedMedia.open(context, it.uri, it.mimeType) },
+                onPlay = { playing = it },
                 onShare = { SavedMedia.share(context, it.uri, it.mimeType) },
                 onDelete = { pendingDelete = it },
             )
@@ -352,6 +372,17 @@ fun SaverScreen(
                 showAccounts = false
             },
             onDismiss = { showAccounts = false },
+        )
+    }
+
+    playing?.let { item ->
+        PlayerSheet(
+            item = item,
+            onOpenExternally = {
+                SavedMedia.open(context, item.uri, item.mimeType)
+                playing = null
+            },
+            onDismiss = { playing = null },
         )
     }
 
@@ -521,7 +552,7 @@ private fun OptionRow(option: Formats.Option, onClick: () -> Unit) {
 }
 
 @Composable
-private fun JobCard(job: DownloadJob) {
+private fun JobCard(job: DownloadJob, onPlay: (String) -> Unit) {
     val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
@@ -587,7 +618,7 @@ private fun JobCard(job: DownloadJob) {
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { SavedMedia.open(context, uri, job.mimeType) },
+                        onClick = { onPlay(uri) },
                         modifier = Modifier.weight(1f),
                     ) { Text("Play") }
                     OutlinedButton(onClick = { SavedMedia.share(context, uri, job.mimeType) }) {
