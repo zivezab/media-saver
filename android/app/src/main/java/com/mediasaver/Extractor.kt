@@ -142,6 +142,12 @@ object Extractor {
             .trim()
         val low = msg.lowercase()
         return when {
+            // yt-dlp's X, Bluesky and Tumblr extractors drop photo media before
+            // building formats, so a picture-only post reports "no video" - which
+            // reads as a bug when you are looking straight at an image.
+            "no video could be found" in low ->
+                "That post has no video in it. Photos can't be saved from X, " +
+                    "Bluesky or Tumblr - those extractors handle video and GIFs only."
             "unsupported url" in low ->
                 "This site isn't supported. Try the direct link to the post itself."
             "only works when logged-in" in low || "sign in" in low || "authentication" in low ||
