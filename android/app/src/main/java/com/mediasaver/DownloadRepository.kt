@@ -27,6 +27,9 @@ data class DownloadJob(
     val etaSeconds: Long = -1,
     val detail: String = "Starting",
     val savedAs: String? = null,
+    val savedUri: String? = null,
+    val mimeType: String? = null,
+    val savedLocation: String? = null,
     val error: String? = null,
 ) {
     enum class Status { RUNNING, SAVING, DONE, FAILED, CANCELLED }
@@ -118,13 +121,32 @@ object DownloadRepository {
             update(id) { it.copy(status = DownloadJob.Status.SAVING, progress = 0.99f, detail = "Saving to your phone") }
 
             val name = MediaStoreSaver.sanitize(file.nameWithoutExtension) + "." + file.extension
+            val sizeBytes = file.length()
             val saved = MediaStoreSaver.save(app, file, name)
+
+            val job = _jobs.value.firstOrNull { it.id == id }
+            DownloadHistory.add(
+                app,
+                SavedItem(
+                    id = id,
+                    title = job?.label ?: saved.displayName,
+                    displayName = saved.displayName,
+                    uri = saved.uri,
+                    mimeType = saved.mimeType,
+                    location = saved.location,
+                    sizeBytes = sizeBytes,
+                    savedAt = System.currentTimeMillis(),
+                ),
+            )
 
             update(id) {
                 it.copy(
                     status = DownloadJob.Status.DONE,
                     progress = 1f,
-                    savedAs = saved,
+                    savedAs = saved.displayName,
+                    savedUri = saved.uri,
+                    mimeType = saved.mimeType,
+                    savedLocation = saved.location,
                     detail = "Saved",
                 )
             }

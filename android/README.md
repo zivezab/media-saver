@@ -20,6 +20,22 @@ Downloads run in a foreground service, so leaving the app or locking the screen
 part-way through a large video does not kill them. Progress shows in the
 notification shade.
 
+## Getting to what you saved
+
+Saving a file is only half the job — a download you then have to hunt for in a
+file manager is not really finished. Three things lead back to it:
+
+- **The finished download** shows **Play** and **Share** the moment it completes.
+- **The notification** says "Saved - tap to play" and opens the file directly.
+  It is on its own channel, so it can stay audible while progress stays silent.
+- **"Saved on this phone"** lists everything the app has saved, and survives
+  restarts. Each entry has Play and Share, with its size and folder.
+
+Playing and sharing hand other apps the MediaStore `content://` Uri with read
+permission attached, so any installed player or app can receive it. Entries the
+user later deletes from the gallery are pruned from the list on next launch,
+rather than left as dead rows.
+
 ## Building it
 
 Requires a JDK (17 or 21) and the Android SDK. On a Mac with Homebrew:
