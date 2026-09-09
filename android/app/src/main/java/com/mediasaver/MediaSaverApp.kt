@@ -11,5 +11,6 @@ class MediaSaverApp : Application() {
         DownloadService.createChannel(this)
         DownloadHistory.load(this)
         CookieStore.load(this)
+        Settings.load(this)
     }
 }

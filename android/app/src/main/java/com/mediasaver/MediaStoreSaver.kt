@@ -15,7 +15,6 @@ import java.io.File
  */
 object MediaStoreSaver {
 
-    private const val SUBFOLDER = "Media Saver"
 
     /**
      * The content Uri matters as much as the bytes: it is what lets the app open
@@ -58,7 +57,7 @@ object MediaStoreSaver {
             mime.startsWith("image/") -> Environment.DIRECTORY_PICTURES
             else -> Environment.DIRECTORY_DOWNLOADS
         }
-        val relative = "$folder/$SUBFOLDER"
+        val relative = "$folder/" + Settings.safeFolder(Settings.state.value.folder)
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
@@ -94,14 +93,54 @@ object MediaStoreSaver {
             ?.use { it.moveToFirst() } ?: false
     }.getOrDefault(false)
 
-    /** Strip characters that are illegal in a file name, plus any control characters. */
+    /** Names that are illegal on Windows, which matters once a file is copied off the phone. */
+    private val RESERVED = setOf(
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    )
+
+    /**
+     * Make a file name safe on every filesystem the file might reach - the
+     * phone's, a Windows PC it gets copied to, a FAT SD card.
+     *
+     * Titles come from arbitrary web pages, so they routinely contain path
+     * separators, colons, emoji, right-to-left marks and trailing dots.
+     */
     fun sanitize(name: String, fallback: String = "media"): String {
-        val cleaned = name
-            .filter { it.code >= 0x20 }
+        var cleaned = name
+            // Control characters, and the bidi/zero-width marks that make a name
+            // display differently from what it is.
+            .filter { it.code >= 0x20 && it.code != 0x7F }
+            .filterNot { it.code in 0x200B..0x200F || it.code in 0x202A..0x202E }
             .map { if (it in "\\/:*?\"<>|") '_' else it }
             .joinToString("")
             .replace(Regex("""\s+"""), " ")
-            .trim(' ', '.')
-        return cleaned.ifBlank { fallback }.take(120)
+            .trim()
+
+        // A leading dot hides the file; trailing dots and spaces are silently
+        // dropped by Windows, which then cannot find its own file.
+        cleaned = cleaned.trim(' ', '.')
+
+        if (cleaned.isBlank()) cleaned = fallback
+
+        val extension = cleaned.substringAfterLast('.', "").takeIf {
+            it.isNotEmpty() && it.length <= 5 && it.all(Char::isLetterOrDigit)
+        }
+        var stem = if (extension != null) cleaned.substringBeforeLast('.') else cleaned
+        stem = stem.trim(' ', '.').ifBlank { fallback }
+
+        if (stem.uppercase() in RESERVED) stem = "_$stem"
+
+        // Keep well inside the 255-byte limit once non-ASCII is encoded.
+        while (stem.toByteArray().size > 180) stem = stem.dropLast(1)
+        stem = stem.trim(' ', '.').ifBlank { fallback }
+
+        return if (extension != null) "$stem.$extension" else stem
     }
+
+    /** Remove a file this app saved. Files we created are ours to delete. */
+    fun delete(context: Context, uriString: String): Boolean = runCatching {
+        context.contentResolver.delete(Uri.parse(uriString), null, null) > 0
+    }.getOrDefault(false)
 }

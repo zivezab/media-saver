@@ -2,7 +2,6 @@ package com.mediasaver
 
 import android.content.Context
 import android.net.Uri
-import android.webkit.CookieManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -95,100 +94,74 @@ object CookieStore {
         return present
     }
 
-    /**
-     * Read whatever the WebView collected for this site and merge it into the
-     * cookies file, replacing any previous entries for the same domain.
-     */
-    fun capture(context: Context, site: Site): Boolean {
-        val manager = CookieManager.getInstance()
-        manager.flush()
+    data class ImportResult(val cookies: Int, val sites: Set<String>)
 
-        val pairs = LinkedHashMap<String, String>()
-        for (url in site.readFrom) {
-            val header = manager.getCookie(url) ?: continue
-            header.split(';').forEach { part ->
+    /**
+     * Turn pasted or imported text into Netscape cookie lines.
+     *
+     * Accepts two shapes: a cookies.txt export, and the "name=value; name=value"
+     * header a browser console or tool produces. The header form carries no
+     * domain, so the caller has to say which site it belongs to.
+     */
+    fun parseCookies(text: String, headerSite: Site?): List<String> {
+        val netscape = text.lines()
+            .map { it.trimEnd() }
+            .filter { line ->
+                line.isNotBlank() && !line.trimStart().startsWith("#") &&
+                    line.count { it == '\t' } >= 6
+            }
+        if (netscape.isNotEmpty()) return netscape
+
+        val site = headerSite ?: return emptyList()
+        val expiry = (System.currentTimeMillis() / 1000) + 365L * 24 * 60 * 60
+        return text.split(';', '\n')
+            .mapNotNull { part ->
                 val name = part.substringBefore('=').trim()
                 val value = part.substringAfter('=', "").trim()
-                if (name.isNotEmpty()) pairs[name] = value
+                if (name.isEmpty() || value.isEmpty() || name.contains(' ')) null
+                else listOf(site.cookieDomain, "TRUE", "/", "TRUE", expiry.toString(), name, value)
+                    .joinToString("\t")
             }
-        }
-        // Any site sets throwaway cookies to a mere visitor. Only the session
-        // cookie proves the login completed - without this check a sign-in that
-        // was blocked (X's bot detection does this) would still report success.
-        if (!pairs.containsKey(site.sessionCookie)) return false
+    }
 
-        val expiry = (System.currentTimeMillis() / 1000) + 365L * 24 * 60 * 60
-        val newLines = pairs.map { (name, value) ->
-            // domain, include-subdomains, path, secure, expiry, name, value
-            listOf(site.cookieDomain, "TRUE", "/", "TRUE", expiry.toString(), name, value)
-                .joinToString("\t")
+    /** Which known sites these lines carry a session for. */
+    fun sitesIn(lines: List<String>): Set<String> {
+        val present = mutableSetOf<String>()
+        for (site in SITES) {
+            val base = site.cookieDomain.removePrefix(".")
+            val hasSession = lines.any { line ->
+                val parts = line.split('\t')
+                if (parts.size < 7 || parts[5] != site.sessionCookie) return@any false
+                val domain = parts[0].removePrefix(".")
+                domain == base || domain.endsWith(".$base")
+            }
+            if (hasSession) present += site.key
         }
+        return present
+    }
 
+    /** Write validated lines as the cookies file. */
+    fun saveLines(context: Context, lines: List<String>): ImportResult {
         val target = file(context)
-        val kept = if (target.isFile) {
-            target.readLines().filter { line ->
-                line.isNotBlank() && !line.startsWith("#") &&
-                    line.substringBefore('\t') != site.cookieDomain
-            }
-        } else emptyList()
-
-        target.writeText((listOf(HEADER) + kept + newLines).joinToString("\n") + "\n")
-        // Not world-readable: this is a live session.
+        target.writeText((listOf(HEADER) + lines).joinToString("\n") + "\n")
         runCatching { target.setReadable(false, false); target.setReadable(true, true) }
-
-        _signedIn.value = sitesInFile(context)
-        return true
+        val sites = sitesInFile(context)
+        _signedIn.value = sites
+        return ImportResult(lines.size, sites)
     }
-
-    /** True once the site's session cookie is present, i.e. the login worked. */
-    fun isSignedIn(site: Site): Boolean {
-        val manager = CookieManager.getInstance()
-        return site.readFrom.any { url ->
-            manager.getCookie(url)?.split(';')?.any {
-                it.substringBefore('=').trim() == site.sessionCookie
-            } == true
-        }
-    }
-
-    /**
-     * Take a cookies.txt exported from a desktop browser. A fallback for sites
-     * whose bot detection refuses to render a login inside a WebView - X's
-     * fingerprinting script does exactly that.
-     *
-     * @return how many cookie lines were imported, or null if the file was not
-     *   in Netscape format.
-     */
-    data class ImportResult(val cookies: Int, val sites: Set<String>)
 
     fun importFrom(context: Context, uri: Uri): ImportResult? {
         val text = context.contentResolver.openInputStream(uri)?.use {
             it.readBytes().decodeToString()
         } ?: return null
-
-        val lines = text.lines()
-        val cookieLines = lines.filter { line ->
-            line.isNotBlank() && !line.trimStart().startsWith("#") && line.count { it == '\t' } >= 6
-        }
-        if (cookieLines.isEmpty()) return null
-
-        file(context).writeText((listOf(HEADER) + cookieLines).joinToString("\n") + "\n")
-        runCatching { file(context).setReadable(false, false); file(context).setReadable(true, true) }
-
-        val domains = cookieLines.mapNotNull { it.substringBefore('\t').removePrefix(".").ifBlank { null } }
-            .map { it.substringBefore('.') }
-            .toSet()
-        val sites = sitesInFile(context)
-        _signedIn.value = sites
-        return ImportResult(cookieLines.size, sites)
+        val lines = parseCookies(text, headerSite = null)
+        if (lines.isEmpty()) return null
+        return saveLines(context, lines)
     }
 
     fun signOut(context: Context) {
         file(context).delete()
         prefs(context).edit().remove(KEY_SITES).apply()
         _signedIn.value = emptySet()
-        CookieManager.getInstance().apply {
-            removeAllCookies(null)
-            flush()
-        }
     }
 }
