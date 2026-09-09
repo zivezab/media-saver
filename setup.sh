@@ -11,6 +11,17 @@ done
 [ -n "$PY" ] || { echo "No python3 found."; exit 1; }
 echo "Using $PY ($($PY -V 2>&1))"
 
+# An existing venv is pinned to the interpreter that built it, so a stale one
+# (say, the deprecated 3.9) has to be replaced rather than reused.
+if [ -x .venv/bin/python ]; then
+  have=$(./.venv/bin/python -c 'import sys;print("%d.%d"%sys.version_info[:2])')
+  want=$("$PY" -c 'import sys;print("%d.%d"%sys.version_info[:2])')
+  if [ "$have" != "$want" ]; then
+    echo "Replacing existing venv (Python $have) with Python $want"
+    rm -rf .venv
+  fi
+fi
+
 "$PY" -m venv .venv
 ./.venv/bin/pip -q install --upgrade pip
 ./.venv/bin/pip -q install -r requirements.txt

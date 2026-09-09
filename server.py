@@ -131,11 +131,6 @@ def ydl_opts_base():
         "extractor_retries": 2,
         "ignoreerrors": False,
         "nocheckcertificate": False,
-        # YouTube's default extraction path breaks periodically ("The page needs
-        # to be reloaded"); the alternate clients are tried in order as fallbacks.
-        "extractor_args": {
-            "youtube": {"player_client": ["default", "android", "tv", "web_safari"]}
-        },
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -251,6 +246,8 @@ def describe_format(f):
         "note": f.get("format_note") or "",
         "muxed": kind in ("video", "file"),
         "tbr": f.get("tbr") or 0,
+        "vcodec": vcodec or "",
+        "protocol": f.get("protocol") or "",
     }
 
 
@@ -263,6 +260,18 @@ def is_real_media(f):
     if "storyboard" in (f.get("format_note") or "").lower():
         return False
     return True
+
+
+def rank_format(d):
+    """Preference order for two formats offering the same thing.
+
+    Protocol comes first: YouTube's HLS variants advertise a much higher tbr
+    than the equivalent direct stream but frequently answer 401 to logged-out
+    clients, so ranking on bitrate alone reliably picks a broken format. Then
+    H.264, which plays everywhere, and only then bitrate.
+    """
+    direct = not d["protocol"].startswith(("m3u8", "http_dash"))
+    return (direct, d["vcodec"].startswith(("avc1", "h264")), d["tbr"])
 
 
 def build_options(info, ffmpeg):
@@ -310,9 +319,9 @@ def build_options(info, ffmpeg):
                          reverse=True)[:8]
         for tier in heights:
             best_muxed = max((d for d in muxed if d["height"] == tier),
-                             key=lambda d: d["tbr"], default=None)
+                             key=rank_format, default=None)
             best_split = max((d for d in video_only if d["height"] == tier),
-                             key=lambda d: d["tbr"], default=None)
+                             key=rank_format, default=None)
             if best_muxed:
                 add({
                     "selector": best_muxed["format_id"],
@@ -327,7 +336,9 @@ def build_options(info, ffmpeg):
                 add({
                     "selector": "%s+bestaudio" % best_split["format_id"],
                     "title": "%dp" % tier,
-                    "subtitle": " · ".join(x for x in [best_split["ext"].upper(),
+                    # The merge is written to MP4, so name the container the
+                    # user actually receives, not the source stream's.
+                    "subtitle": " · ".join(x for x in ["MP4",
                                                        best_split["size_human"],
                                                        "merged with audio"] if x),
                     "kind": "video",
@@ -335,7 +346,7 @@ def build_options(info, ffmpeg):
                 })
 
     if audio_only:
-        best_audio = max(audio_only, key=lambda d: d["tbr"], default=None)
+        best_audio = max(audio_only, key=rank_format, default=None)
         add({
             "selector": best_audio["format_id"] if best_audio else "bestaudio",
             "title": "Audio only",
@@ -495,12 +506,29 @@ def reap_jobs():
 
 
 def format_selector(selector, kind, ffmpeg):
+    """Expand a UI choice into a yt-dlp format string.
+
+    Merged output is written to MP4, so the audio is steered towards AAC/m4a and
+    the video towards H.264: Opus or VP9 remuxed into MP4 is technically legal
+    but will not play in QuickTime or on iOS, which is where these files land.
+    Each preference falls back to "whatever exists" so nothing becomes
+    undownloadable.
+    """
     if selector == "best":
         if kind == "audio":
-            return "bestaudio/best"
-        return "bestvideo*+bestaudio/best" if ffmpeg else "best[vcodec!=none][acodec!=none]/best"
+            return "bestaudio[ext=m4a]/bestaudio/best"
+        if not ffmpeg:
+            return "best[vcodec!=none][acodec!=none]/best"
+        return ("bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/"
+                "bestvideo*+bestaudio[ext=m4a]/"
+                "bestvideo*+bestaudio/best")
     if selector in ("bestaudio", "bestvideo"):
         return selector + "/best"
+    if selector.endswith("+bestaudio"):
+        video_id = selector[:-len("+bestaudio")]
+        if not ffmpeg:
+            return video_id + "/best"
+        return "{v}+bestaudio[ext=m4a]/{v}+bestaudio/{v}/best".format(v=video_id)
     if "+" in selector and not ffmpeg:
         return selector.split("+")[0] + "/best"
     return selector + "/best"

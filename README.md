@@ -16,6 +16,18 @@ installs to the home screen so you can share links to it straight from other app
 That creates a virtualenv and installs [yt-dlp](https://github.com/yt-dlp/yt-dlp),
 which does the actual media extraction. Everything else is Python standard library.
 
+**Python 3.10 or newer is required.** yt-dlp has dropped 3.9, and this matters more
+than a deprecation notice suggests: pip will silently install the last yt-dlp release
+that still supported your interpreter, and an outdated yt-dlp quietly loses formats.
+On the 3.9 that ships with macOS, YouTube offered only a single 360p option; on 3.13
+the same video offers everything up to 2160p. `setup.sh` picks the newest interpreter
+it can find and rebuilds the venv if the existing one is older. If macOS only has
+3.9, install a current Python first:
+
+```bash
+brew install python@3.13
+```
+
 **Install ffmpeg too** if you want high-resolution video:
 
 ```bash
@@ -96,9 +108,13 @@ see *"this site's extractor failed"* or a format vanishes, update first:
 ./update.sh
 ```
 
-That fixes the large majority of breakages. YouTube in particular now withholds
-its higher resolutions from logged-out clients, so `--cookies-from-browser` is
-often what gets 1080p back.
+That fixes the large majority of breakages. If formats look oddly limited — a
+site offering one low resolution when you know it has more — check that the venv
+is on a current Python, since that is what governs which yt-dlp you can install.
+
+Sites that require an account (Vimeo and Reddit both do now) will not serve
+anything to a logged-out visitor at all; `--cookies-from-browser` is the answer
+there.
 
 ## How it works
 
