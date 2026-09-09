@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -152,13 +151,18 @@ class DownloadService : Service() {
             DownloadJob.Status.DONE -> {
                 val uri = job.savedUri
                 val open = if (uri != null) {
+                    // Opens the app's own player rather than handing the file to
+                    // another app, so tapping the notification stays in context.
                     PendingIntent.getActivity(
                         this,
                         id,
-                        Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(Uri.parse(uri), job.mimeType)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        Intent(this, MainActivity::class.java).apply {
+                            action = MainActivity.ACTION_PLAY
+                            putExtra(MainActivity.EXTRA_PLAY_URI, uri)
+                            putExtra(MainActivity.EXTRA_PLAY_MIME, job.mimeType)
+                            putExtra(MainActivity.EXTRA_PLAY_NAME, job.savedAs ?: job.label)
+                            putExtra(MainActivity.EXTRA_PLAY_LOCATION, job.savedLocation.orEmpty())
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                         },
                         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                     )

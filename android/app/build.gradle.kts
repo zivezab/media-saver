@@ -65,6 +65,11 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // In-app playback. media3 1.8.x is the newest line that still compiles
+    // against SDK 36; later releases want 37.
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-ui:1.8.0")
+
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 }

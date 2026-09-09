@@ -188,12 +188,29 @@ survives restarts.
 | Layout | List or grid |
 | Thumbnails | Real poster frames, from MediaStore. Can be turned off |
 | Per item | Play, Share, and Delete with confirmation - Delete removes the file, not just the row |
+| Playback | In-app, via ExoPlayer - no app switch |
 | Duplicates | Detected on size plus name; one button removes all but the newest of each, after confirming |
 
 Duplicates are matched on size and name rather than by hashing, deliberately:
 these files run to hundreds of megabytes, and re-reading each one to compare
 digests would cost far more than the problem is worth. Two downloads of the
 same format of the same video have identical byte lengths.
+
+## Playing
+
+**Play** opens the file inside the app, using ExoPlayer: scrubber, pause,
+skip back 5 / forward 15, track and speed options, and a rotate button.
+Tapping the "Saved - tap to play" notification lands in the same player rather
+than handing the file to another app.
+
+The player still offers **open in another app**, and that is not decoration:
+ExoPlayer will not decode everything a phone's stock player might, and 2160p
+and 1440p from YouTube are VP9 remuxed into MP4. When playback fails, the
+player says so and points at that button rather than showing a black screen.
+
+Closing the player releases it. An ExoPlayer left alive holds a hardware codec
+and keeps audio focus, which is exactly the kind of thing that goes unnoticed
+until the phone stops playing anything else.
 
 ## Settings
 
