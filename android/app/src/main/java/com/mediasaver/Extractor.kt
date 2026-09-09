@@ -46,6 +46,9 @@ object Extractor {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Held so a lookup can find the cookies file without the caller passing one. */
+    private var appContext: Context? = null
+
     private const val PREFS = "extractor"
     private const val KEY_LAST_UPDATE = "last_ytdlp_update"
     private val UPDATE_INTERVAL_MS = 24L * 60 * 60 * 1000
@@ -56,6 +59,7 @@ object Extractor {
     fun start(context: Context) {
         if (_init.value is Init.Ready) return
         val app = context.applicationContext
+        appContext = app
         scope.launch {
             _init.value = try {
                 YoutubeDL.getInstance().init(app)
@@ -106,6 +110,7 @@ object Extractor {
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("--socket-timeout", "20")
+            applyCookies(this)
         }
         val info = YoutubeDL.getInstance().getInfo(request)
         val (options, rows) = Formats.build(info)
@@ -122,6 +127,18 @@ object Extractor {
             options = options,
             allFormats = rows,
         )
+    }
+
+    /**
+     * Hand yt-dlp the user's saved logins, when there are any. Sites like X gate
+     * sensitive posts on a session rather than on anything technical.
+     */
+    fun applyCookies(request: YoutubeDLRequest) {
+        val context = appContext ?: return
+        val file = CookieStore.file(context)
+        if (file.isFile && file.length() > 0) {
+            request.addOption("--cookies", file.absolutePath)
+        }
     }
 
     /** Turn a yt-dlp failure into something a person can act on. */
@@ -150,9 +167,14 @@ object Extractor {
                     "Bluesky or Tumblr - those extractors handle video and GIFs only."
             "unsupported url" in low ->
                 "This site isn't supported. Try the direct link to the post itself."
+            "nsfw" in low || "age" in low && "restrict" in low ->
+                "This post is marked sensitive, so X only shows it to a signed-in " +
+                    "account. Sign in from the account button at the top, then try again."
             "only works when logged-in" in low || "sign in" in low || "authentication" in low ||
-                "private" in low || "members-only" in low || "cookies" in low ->
-                "This needs an account, so it can't be read without being signed in."
+                "not authorized" in low || "private" in low || "members-only" in low ||
+                "cookies" in low || "login" in low ->
+                "This needs an account. Sign in from the account button at the top, " +
+                    "then try again."
             "not available" in low || "removed" in low || "unavailable" in low ->
                 "The media at that link is unavailable, deleted, or region-blocked."
             "http error 404" in low -> "That link returned 404 - check it is complete and still live."

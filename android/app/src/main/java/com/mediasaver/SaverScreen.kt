@@ -17,11 +17,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,11 +42,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.content.Intent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -64,6 +73,8 @@ fun SaverScreen(
     val state by viewModel.state.collectAsState()
     val jobs by DownloadRepository.jobs.collectAsState()
     val saved by DownloadHistory.items.collectAsState()
+    val signedIn by CookieStore.signedIn.collectAsState()
+    var showAccounts by remember { mutableStateOf(false) }
     val init by Extractor.init.collectAsState()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -79,9 +90,19 @@ fun SaverScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = {
-                Text("Media Saver", fontWeight = FontWeight.SemiBold)
-            })
+            TopAppBar(
+                title = { Text("Media Saver", fontWeight = FontWeight.SemiBold) },
+                actions = {
+                    IconButton(onClick = { showAccounts = true }) {
+                        Icon(
+                            Icons.Filled.AccountCircle,
+                            contentDescription = "Site sign-ins",
+                            tint = if (signedIn.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+            )
         },
     ) { padding ->
         LazyColumn(
@@ -236,6 +257,121 @@ fun SaverScreen(
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
+
+    val importCookies = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val count = runCatching { CookieStore.importFrom(context, uri) }.getOrNull()
+            Toast.makeText(
+                context,
+                if (count != null) "Imported $count cookies"
+                else "That file is not in Netscape cookies.txt format.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    if (showAccounts) {
+        AccountsDialog(
+            signedIn = signedIn,
+            onImport = {
+                showAccounts = false
+                importCookies.launch(arrayOf("text/plain", "application/octet-stream", "*/*"))
+            },
+            onDismiss = { showAccounts = false },
+            onSignIn = { site ->
+                showAccounts = false
+                context.startActivity(
+                    Intent(context, LoginActivity::class.java)
+                        .putExtra(LoginActivity.EXTRA_SITE, site.key)
+                )
+            },
+            onSignOut = {
+                CookieStore.signOut(context)
+                showAccounts = false
+            },
+        )
+    }
+}
+
+/**
+ * Signing in is what makes login-walled and sensitive posts readable: those are
+ * gated on having an account, not on anything the downloader can work around.
+ */
+@Composable
+private fun AccountsDialog(
+    signedIn: Set<String>,
+    onImport: () -> Unit,
+    onDismiss: () -> Unit,
+    onSignIn: (CookieStore.Site) -> Unit,
+    onSignOut: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Site sign-ins") },
+        text = {
+            Column {
+                Text(
+                    "Some posts are only served to a signed-in account - anything " +
+                        "marked sensitive on X, and most of Vimeo and Reddit. Signing " +
+                        "in here lets the downloader read them as you.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(14.dp))
+                CookieStore.SITES.forEach { site ->
+                    val isIn = site.key in signedIn
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(site.label, style = MaterialTheme.typography.bodyMedium)
+                            if (isIn) {
+                                Text(
+                                    "Signed in",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        TextButton(onClick = { onSignIn(site) }) {
+                            Text(if (isIn) "Sign in again" else "Sign in")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+                    Text("Import a cookies.txt file instead")
+                }
+                Text(
+                    "Use this if a site refuses to show its login inside the app - " +
+                        "X's bot detection sometimes does. Export cookies.txt from a " +
+                        "desktop browser and pick it here.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (signedIn.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Your sign-in is stored on this phone only, in the app's own " +
+                            "private storage. It is a live session, so sign out if you " +
+                            "hand the phone on.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = {
+            if (signedIn.isNotEmpty()) {
+                TextButton(onClick = onSignOut) { Text("Sign out of all") }
+            }
+        },
+    )
 }
 
 /**

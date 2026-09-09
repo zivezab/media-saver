@@ -10,5 +10,6 @@ class MediaSaverApp : Application() {
         Extractor.start(this)
         DownloadService.createChannel(this)
         DownloadHistory.load(this)
+        CookieStore.load(this)
     }
 }
