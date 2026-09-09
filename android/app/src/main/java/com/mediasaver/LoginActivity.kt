@@ -1,7 +1,12 @@
 package com.mediasaver
 
 import android.os.Bundle
+import android.util.Log
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -118,7 +123,26 @@ class LoginActivity : ComponentActivity() {
                                             "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                                     CookieManager.getInstance()
                                         .setAcceptThirdPartyCookies(this, true)
+                                    // Several login flows need a chrome client
+                                    // present before they will render at all.
+                                    webChromeClient = object : WebChromeClient() {}
                                     webViewClient = object : WebViewClient() {
+                                        override fun onReceivedError(
+                                            view: WebView?,
+                                            request: WebResourceRequest?,
+                                            error: WebResourceError?,
+                                        ) {
+                                            Log.w("LoginWebView", "error ${error?.errorCode} ${error?.description} for ${request?.url}")
+                                        }
+
+                                        override fun onReceivedHttpError(
+                                            view: WebView?,
+                                            request: WebResourceRequest?,
+                                            response: WebResourceResponse?,
+                                        ) {
+                                            Log.w("LoginWebView", "http ${response?.statusCode} for ${request?.url}")
+                                        }
+
                                         override fun onPageFinished(view: WebView?, url: String?) {
                                             loading = false
                                             // The session cookie only appears once the

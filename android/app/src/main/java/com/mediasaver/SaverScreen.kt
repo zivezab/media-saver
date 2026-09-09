@@ -313,55 +313,65 @@ private fun AccountsDialog(
         text = {
             Column {
                 Text(
-                    "Some posts are only served to a signed-in account - anything " +
-                        "marked sensitive on X, and most of Vimeo and Reddit. Signing " +
-                        "in here lets the downloader read them as you.",
+                    "X hides posts marked sensitive from signed-out apps, and Vimeo " +
+                        "and Reddit hide everything. Giving the downloader your own " +
+                        "session makes those readable.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
                 Spacer(Modifier.height(14.dp))
+                Button(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+                    Text("Import a cookies.txt file")
+                }
+                Text(
+                    "On a computer, sign in to the site in your browser, export " +
+                        "cookies.txt with a \"Get cookies.txt\" extension, copy it to " +
+                        "this phone, and pick it here.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (signedIn.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Signed in: " + CookieStore.SITES
+                            .filter { it.key in signedIn }
+                            .joinToString { it.label },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "Stored only on this phone, in the app's private storage. It is " +
+                            "a live session, so sign out if you hand the phone on.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Text("Or try signing in here", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "Most large sites refuse to show a login inside another app, as a " +
+                        "phishing defence - X, Instagram, Reddit and Vimeo all currently " +
+                        "render a blank page. Worth a try for other sites.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
                 CookieStore.SITES.forEach { site ->
-                    val isIn = site.key in signedIn
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(site.label, style = MaterialTheme.typography.bodyMedium)
-                            if (isIn) {
-                                Text(
-                                    "Signed in",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                        TextButton(onClick = { onSignIn(site) }) {
-                            Text(if (isIn) "Sign in again" else "Sign in")
-                        }
+                        Text(
+                            site.label,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { onSignIn(site) }) { Text("Open") }
                     }
-                }
-                Spacer(Modifier.height(10.dp))
-                TextButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
-                    Text("Import a cookies.txt file instead")
-                }
-                Text(
-                    "Use this if a site refuses to show its login inside the app - " +
-                        "X's bot detection sometimes does. Export cookies.txt from a " +
-                        "desktop browser and pick it here.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (signedIn.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Your sign-in is stored on this phone only, in the app's own " +
-                            "private storage. It is a live session, so sign out if you " +
-                            "hand the phone on.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         },
@@ -374,11 +384,6 @@ private fun AccountsDialog(
     )
 }
 
-/**
- * One previously saved file. The list survives restarts, so anything the app has
- * downloaded stays one tap from playing instead of having to be found in a file
- * manager.
- */
 @Composable
 private fun SavedRow(item: SavedItem) {
     val context = LocalContext.current
