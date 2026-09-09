@@ -50,7 +50,7 @@ class MainViewModel : ViewModel() {
                 val info = Extractor.probe(url)
                 _state.value = _state.value.copy(looking = false, info = info, error = null)
             } catch (t: Throwable) {
-                _state.value = _state.value.copy(looking = false, error = Extractor.humanError(t))
+                _state.value = _state.value.copy(looking = false, error = Extractor.humanError(t, url))
             }
         }
     }
