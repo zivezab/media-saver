@@ -17,7 +17,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -27,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -58,6 +63,7 @@ fun SaverScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val jobs by DownloadRepository.jobs.collectAsState()
+    val saved by DownloadHistory.items.collectAsState()
     val init by Extractor.init.collectAsState()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -213,7 +219,86 @@ fun SaverScreen(
                 items(jobs, key = { it.id }) { job -> JobCard(job) }
             }
 
+            if (saved.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Saved on this phone", style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = { DownloadHistory.clear(context) }) { Text("Clear list") }
+                    }
+                }
+                items(saved, key = { it.id }) { item -> SavedRow(item) }
+            }
+
             item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+/**
+ * One previously saved file. The list survives restarts, so anything the app has
+ * downloaded stays one tap from playing instead of having to be found in a file
+ * manager.
+ */
+@Composable
+private fun SavedRow(item: SavedItem) {
+    val context = LocalContext.current
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (item.isAudio) Icons.Filled.Audiotrack else Icons.Filled.Movie,
+                    contentDescription = null,
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        item.displayName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(Formats.humanSize(item.sizeBytes), item.location)
+                            .joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { DownloadHistory.remove(context, item.id) }) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Remove from list",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            PlayShareRow(
+                onPlay = { SavedMedia.open(context, item.uri, item.mimeType) },
+                onShare = { SavedMedia.share(context, item.uri, item.mimeType) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayShareRow(onPlay: () -> Unit, onShare: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilledTonalButton(onClick = onPlay, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Play")
+        }
+        OutlinedButton(onClick = onShare) {
+            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Share")
         }
     }
 }
@@ -323,6 +408,7 @@ private fun OptionRow(option: Formats.Option, onClick: () -> Unit) {
 
 @Composable
 private fun JobCard(job: DownloadJob) {
+    val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Row(
@@ -362,7 +448,8 @@ private fun JobCard(job: DownloadJob) {
             Spacer(Modifier.height(8.dp))
 
             val message = when (job.status) {
-                DownloadJob.Status.DONE -> "Saved as ${job.savedAs}"
+                DownloadJob.Status.DONE ->
+                    listOfNotNull(job.savedAs, job.savedLocation).joinToString(" · ")
                 DownloadJob.Status.FAILED -> job.error ?: "Failed"
                 else -> job.detail
             }
@@ -383,6 +470,15 @@ private fun JobCard(job: DownloadJob) {
                 if (job.active) {
                     TextButton(onClick = { DownloadRepository.cancel(job.id) }) { Text("Cancel") }
                 }
+            }
+
+            val uri = job.savedUri
+            if (job.status == DownloadJob.Status.DONE && uri != null) {
+                Spacer(Modifier.height(10.dp))
+                PlayShareRow(
+                    onPlay = { SavedMedia.open(context, uri, job.mimeType) },
+                    onShare = { SavedMedia.share(context, uri, job.mimeType) },
+                )
             }
         }
     }

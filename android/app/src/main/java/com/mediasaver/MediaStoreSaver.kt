@@ -2,6 +2,7 @@ package com.mediasaver
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
@@ -15,6 +16,17 @@ import java.io.File
 object MediaStoreSaver {
 
     private const val SUBFOLDER = "Media Saver"
+
+    /**
+     * The content Uri matters as much as the bytes: it is what lets the app open
+     * or share the file afterwards, instead of leaving the user to hunt for it.
+     */
+    data class Saved(
+        val uri: String,
+        val displayName: String,
+        val mimeType: String,
+        val location: String,
+    )
 
     fun mimeTypeFor(name: String): String {
         val ext = name.substringAfterLast('.', "").lowercase()
@@ -30,8 +42,7 @@ object MediaStoreSaver {
             }
     }
 
-    /** @return the display name the file was saved under. */
-    fun save(context: Context, source: File, displayName: String): String {
+    fun save(context: Context, source: File, displayName: String): Saved {
         val resolver = context.contentResolver
         val mime = mimeTypeFor(displayName)
 
@@ -41,12 +52,13 @@ object MediaStoreSaver {
             mime.startsWith("image/") -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
         }
-        val relative = when {
-            mime.startsWith("video/") -> Environment.DIRECTORY_MOVIES + "/" + SUBFOLDER
-            mime.startsWith("audio/") -> Environment.DIRECTORY_MUSIC + "/" + SUBFOLDER
-            mime.startsWith("image/") -> Environment.DIRECTORY_PICTURES + "/" + SUBFOLDER
-            else -> Environment.DIRECTORY_DOWNLOADS + "/" + SUBFOLDER
+        val folder = when {
+            mime.startsWith("video/") -> Environment.DIRECTORY_MOVIES
+            mime.startsWith("audio/") -> Environment.DIRECTORY_MUSIC
+            mime.startsWith("image/") -> Environment.DIRECTORY_PICTURES
+            else -> Environment.DIRECTORY_DOWNLOADS
         }
+        val relative = "$folder/$SUBFOLDER"
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
@@ -58,17 +70,29 @@ object MediaStoreSaver {
         val uri = resolver.insert(collection, values)
             ?: error("Could not create a file in shared storage.")
 
-        resolver.openOutputStream(uri).use { out ->
-            checkNotNull(out) { "Could not open the destination file." }
-            source.inputStream().use { it.copyTo(out, 1 shl 16) }
+        try {
+            resolver.openOutputStream(uri).use { out ->
+                checkNotNull(out) { "Could not open the destination file." }
+                source.inputStream().use { it.copyTo(out, 1 shl 16) }
+            }
+        } catch (t: Throwable) {
+            // Leave no half-written entry behind for the gallery to show.
+            runCatching { resolver.delete(uri, null, null) }
+            throw t
         }
 
         values.clear()
         values.put(MediaStore.MediaColumns.IS_PENDING, 0)
         resolver.update(uri, values, null, null)
 
-        return displayName
+        return Saved(uri.toString(), displayName, mime, relative)
     }
+
+    /** True if the saved entry is still there; the user may have deleted it. */
+    fun exists(context: Context, uriString: String): Boolean = runCatching {
+        context.contentResolver.query(Uri.parse(uriString), arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+            ?.use { it.moveToFirst() } ?: false
+    }.getOrDefault(false)
 
     /** Strip characters that are illegal in a file name, plus any control characters. */
     fun sanitize(name: String, fallback: String = "media"): String {

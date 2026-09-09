@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -26,6 +27,7 @@ class DownloadService : Service() {
 
     companion object {
         const val CHANNEL_ID = "downloads"
+        const val DONE_CHANNEL_ID = "completed"
         private const val NOTIFICATION_ID = 1
 
         private const val EXTRA_ID = "id"
@@ -54,17 +56,24 @@ class DownloadService : Service() {
         }
 
         fun createChannel(context: Context) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Downloads",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply { description = "Progress while media is being saved" }
-            context.getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(channel)
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Downloads", NotificationManager.IMPORTANCE_LOW)
+                    .apply { description = "Progress while media is being saved" }
+            )
+            // Finishing is the moment worth surfacing, so it gets its own channel
+            // the user can leave audible while silencing progress.
+            manager.createNotificationChannel(
+                NotificationChannel(DONE_CHANNEL_ID, "Finished downloads", NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = "When a download is saved and ready to play" }
+            )
         }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /** Jobs already announced, so the collector does not re-post on every tick. */
+    private val announced = mutableSetOf<String>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -77,12 +86,21 @@ class DownloadService : Service() {
             DownloadRepository.jobs.collectLatest { jobs ->
                 val active = jobs.filter { it.active }
                 if (active.isEmpty()) {
+                    jobs.filter { it.id !in announced }.forEach { finished ->
+                        announced += finished.id
+                        announceFinished(finished)
+                    }
                     // Everything finished; drop the foreground state so the
                     // ongoing notification does not linger.
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     return@collectLatest
                 }
+                jobs.filter { it.id !in announced && !it.active }.forEach { finished ->
+                    announced += finished.id
+                    announceFinished(finished)
+                }
+
                 val head = active.first()
                 val title = if (active.size == 1) head.label else "${active.size} downloads"
                 val percent = (head.progress * 100).toInt()
@@ -115,6 +133,62 @@ class DownloadService : Service() {
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    /**
+     * A tappable "it is ready" notification. Tapping opens the saved file in a
+     * player, which is the whole point: the user should not have to go looking
+     * for what they just downloaded.
+     */
+    private fun announceFinished(job: DownloadJob) {
+        val manager = getSystemService(NotificationManager::class.java)
+        val id = NOTIFICATION_ID + 1 + (job.id.hashCode() and 0xFFFF)
+
+        val builder = NotificationCompat.Builder(this, DONE_CHANNEL_ID)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+
+        when (job.status) {
+            DownloadJob.Status.DONE -> {
+                val uri = job.savedUri
+                val open = if (uri != null) {
+                    PendingIntent.getActivity(
+                        this,
+                        id,
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(Uri.parse(uri), job.mimeType)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        },
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    )
+                } else null
+
+                builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle("Saved - tap to play")
+                    .setContentText(job.savedAs ?: job.label)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(
+                        listOfNotNull(job.savedAs, job.savedLocation).joinToString("\n")
+                    ))
+                if (open != null) builder.setContentIntent(open)
+            }
+
+            DownloadJob.Status.FAILED -> builder
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle("Download failed")
+                .setContentText(job.error ?: job.label)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(job.error ?: job.label))
+                .setContentIntent(
+                    PendingIntent.getActivity(
+                        this, id, Intent(this, MainActivity::class.java),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    )
+                )
+
+            else -> return   // cancelled needs no announcement
+        }
+
+        manager.notify(id, builder.build())
     }
 
     private fun notify(notification: Notification) {

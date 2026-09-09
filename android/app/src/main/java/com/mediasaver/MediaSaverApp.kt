@@ -9,5 +9,6 @@ class MediaSaverApp : Application() {
         // launch, so it starts as early as possible and the UI waits on it.
         Extractor.start(this)
         DownloadService.createChannel(this)
+        DownloadHistory.load(this)
     }
 }
