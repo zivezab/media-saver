@@ -30,6 +30,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +75,7 @@ fun PlayerSheet(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+    val settings by Settings.state.collectAsState()
     var error by remember(item.uri) { mutableStateOf<String?>(null) }
 
     // Pinch state. Translation is stored in pixels and re-clamped whenever the
@@ -110,6 +113,13 @@ fun PlayerSheet(
                 }
             })
         }
+    }
+
+    // Applied as an effect rather than at construction so toggling the setting
+    // takes hold on a video that is already playing.
+    LaunchedEffect(player, settings.loopPlayback) {
+        player.repeatMode =
+            if (settings.loopPlayback) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
 
     // Releasing matters: an ExoPlayer left alive holds a codec and keeps audio
