@@ -142,7 +142,15 @@ object Extractor {
     }
 
     /** Turn a yt-dlp failure into something a person can act on. */
-    fun humanError(t: Throwable): String {
+    private fun isXLink(url: String?): Boolean =
+        url != null && Regex("""https?://([\w-]+\.)*(x|twitter)\.com/""").containsMatchIn(url)
+
+    private fun signedInToX(): Boolean {
+        val context = appContext ?: return false
+        return "x" in CookieStore.sitesInFile(context)
+    }
+
+    fun humanError(t: Throwable, url: String? = null): String {
         val raw = t.message ?: ""
         // yt-dlp writes warnings to the same stream as errors, and the version
         // warning comes first. Taking the whole message would report a warning
@@ -159,12 +167,27 @@ object Extractor {
             .trim()
         val low = msg.lowercase()
         return when {
-            // yt-dlp's X, Bluesky and Tumblr extractors drop photo media before
-            // building formats, so a picture-only post reports "no video" - which
-            // reads as a bug when you are looking straight at an image.
-            "no video could be found" in low ->
-                "That post has no video in it. Photos can't be saved from X, " +
-                    "Bluesky or Tumblr - those extractors handle video and GIFs only."
+            // Two very different situations reach this one message. yt-dlp's X,
+            // Bluesky and Tumblr extractors drop photo media before building
+            // formats, so a picture-only post reports "no video". But X also
+            // answers a signed-out client with a bare TweetTombstone for
+            // restricted posts, and yt-dlp only recognises a tombstone that
+            // carries explanatory text - so a gated post lands here too, saying
+            // nothing about the sign-in that would actually fix it.
+            "no video could be found" in low -> when {
+                !isXLink(url) ->
+                    "That post has no video in it. Photos can't be saved from X, " +
+                        "Bluesky or Tumblr - those extractors handle video and GIFs only."
+                signedInToX() ->
+                    "X returned nothing for this post even though you are signed in. " +
+                        "Either it holds only photos, which can't be saved from X, or " +
+                        "your X session has expired - sign in again from the account button."
+                else ->
+                    "X hides restricted and sensitive posts from signed-out apps, and " +
+                        "reports it only as \"no video\". Sign in to X from the account " +
+                        "button at the top, then try again. If the post holds only photos, " +
+                        "it can't be saved either way."
+            }
             "unsupported url" in low ->
                 "This site isn't supported. Try the direct link to the post itself."
             "nsfw" in low || "age" in low && "restrict" in low ->

@@ -65,11 +65,27 @@ object CookieStore {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun load(context: Context) {
-        _signedIn.value = if (hasCookies(context)) {
-            prefs(context).getStringSet(KEY_SITES, emptySet())?.toSet() ?: emptySet()
-        } else {
-            emptySet()
+        _signedIn.value = sitesInFile(context)
+    }
+
+    /**
+     * Which sites the cookies file actually carries a session for. Derived from
+     * the file rather than from a stored flag, so the UI cannot claim a sign-in
+     * that is not really there.
+     */
+    fun sitesInFile(context: Context): Set<String> {
+        val target = file(context)
+        if (!target.isFile) return emptySet()
+        val lines = runCatching { target.readLines() }.getOrDefault(emptyList())
+        val present = mutableSetOf<String>()
+        for (site in SITES) {
+            val hasSession = lines.any { line ->
+                val parts = line.split('\t')
+                parts.size >= 7 && parts[0] == site.cookieDomain && parts[5] == site.sessionCookie
+            }
+            if (hasSession) present += site.key
         }
+        return present
     }
 
     /**
@@ -89,7 +105,10 @@ object CookieStore {
                 if (name.isNotEmpty()) pairs[name] = value
             }
         }
-        if (pairs.isEmpty()) return false
+        // Any site sets throwaway cookies to a mere visitor. Only the session
+        // cookie proves the login completed - without this check a sign-in that
+        // was blocked (X's bot detection does this) would still report success.
+        if (!pairs.containsKey(site.sessionCookie)) return false
 
         val expiry = (System.currentTimeMillis() / 1000) + 365L * 24 * 60 * 60
         val newLines = pairs.map { (name, value) ->
@@ -110,10 +129,7 @@ object CookieStore {
         // Not world-readable: this is a live session.
         runCatching { target.setReadable(false, false); target.setReadable(true, true) }
 
-        val sites = prefs(context).getStringSet(KEY_SITES, emptySet())?.toMutableSet() ?: mutableSetOf()
-        sites += site.key
-        prefs(context).edit().putStringSet(KEY_SITES, sites).apply()
-        _signedIn.value = sites.toSet()
+        _signedIn.value = sitesInFile(context)
         return true
     }
 
@@ -152,8 +168,7 @@ object CookieStore {
         val domains = cookieLines.mapNotNull { it.substringBefore('\t').removePrefix(".").ifBlank { null } }
             .map { it.substringBefore('.') }
             .toSet()
-        prefs(context).edit().putStringSet(KEY_SITES, domains).apply()
-        _signedIn.value = domains
+        _signedIn.value = sitesInFile(context)
         return cookieLines.size
     }
 

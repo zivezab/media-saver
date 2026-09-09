@@ -156,7 +156,7 @@ object DownloadRepository {
             val cancelled = _jobs.value.firstOrNull { it.id == id }?.status == DownloadJob.Status.CANCELLED
             if (!cancelled) {
                 update(id) {
-                    it.copy(status = DownloadJob.Status.FAILED, error = Extractor.humanError(t), detail = "Failed")
+                    it.copy(status = DownloadJob.Status.FAILED, error = Extractor.humanError(t, url), detail = "Failed")
                 }
             }
         } finally {
