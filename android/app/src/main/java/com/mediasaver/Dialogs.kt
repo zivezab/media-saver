@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -50,6 +51,27 @@ fun SettingsDialog(
                     options = Settings.Accent.entries.map { it to it.name.lowercase().replaceFirstChar(Char::uppercase) },
                     selected = settings.accent,
                     onSelect = { choice -> onChange { it.copy(accent = choice) } },
+                )
+
+                SectionLabel("Downloading")
+                SwitchRow("Download best quality automatically", settings.autoDownloadBest) { v ->
+                    onChange { it.copy(autoDownloadBest = v) }
+                }
+                Text(
+                    "Skips the quality list: as soon as a link resolves, the best " +
+                        "video and audio available starts downloading.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                SectionLabel("Playing")
+                SwitchRow("Loop videos", settings.loopPlayback) { v ->
+                    onChange { it.copy(loopPlayback = v) }
+                }
+                Text(
+                    "Restarts from the beginning when a video ends.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 SectionLabel("Library")
@@ -137,7 +159,12 @@ private fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, onSelect: (
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        // The whole row toggles, not just the switch: aiming for a small switch
+        // at the edge of a dialog is a poor target, and tapping the label doing
+        // nothing reads as the setting being broken.
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onChange(!checked) },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {

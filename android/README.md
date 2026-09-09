@@ -203,6 +203,9 @@ skip back 5 / forward 15, track and speed options, and a rotate button.
 Tapping the "Saved - tap to play" notification lands in the same player rather
 than handing the file to another app.
 
+Looping is applied as an effect rather than at construction, so toggling the
+setting takes hold on a video that is already playing.
+
 **Zoom**: pinch with two fingers to magnify up to 6x, and drag with two fingers
 to move around while magnified. The on-screen `+` and `-` buttons do the same in
 half steps, and the scale badge doubles as the way back to 1x. A separate button
@@ -235,7 +238,16 @@ until the phone stops playing anything else.
 
 Theme (system/light/dark), accent colour (dynamic, or a fixed palette), list or
 grid, sort field and direction, group by site, thumbnails on or off, full file
-path on or off, and the download folder name. Changing the folder affects new
+path on or off, and the download folder name.
+
+**Download best quality automatically** starts the best-quality download the
+moment a link resolves, skipping the quality list. Shared from another app, that
+makes the whole thing one tap. Note what "best" means here: the same preference
+the Best quality button has always used, which puts H.264 first for
+playability - on YouTube that is 1080p, not the 2160p VP9. It can still be a
+large file, so it is off by default.
+
+**Loop videos** restarts a video from the beginning when it ends. Changing the folder affects new
 downloads; files already saved stay where they are.
 
 ## File naming

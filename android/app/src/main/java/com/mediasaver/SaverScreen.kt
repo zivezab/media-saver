@@ -97,6 +97,26 @@ fun SaverScreen(
         consumePlayRequest()?.let { playing = it }
     }
 
+    // Keyed on the MediaInfo instance, and deliberately at the top level rather
+    // than inside the list: an effect placed in a lazy item would re-run every
+    // time that item scrolled back into view and queue the download again.
+    // A fresh lookup produces a fresh instance, so re-checking the same link
+    // does start a new download.
+    val resolved = state.info
+    LaunchedEffect(resolved) {
+        if (resolved == null || !settings.autoDownloadBest) return@LaunchedEffect
+        val best = resolved.options.firstOrNull { it.recommended }
+            ?: resolved.options.firstOrNull()
+            ?: return@LaunchedEffect
+        DownloadService.enqueue(
+            context = context,
+            url = resolved.url,
+            selector = best.selector,
+            kind = best.kind,
+            label = "${resolved.title} - ${best.title}",
+        )
+    }
+
     val visible = remember(saved, query, settings) {
         saved.filter { DownloadHistory.matches(it, query) }
             .let { list ->

@@ -24,6 +24,10 @@ object Settings {
         val showFullPath: Boolean = false,
         /** Subfolder used inside Movies/Music/Pictures/Download. */
         val folder: String = "Media Saver",
+        /** Start the best-quality download as soon as a link resolves. */
+        val autoDownloadBest: Boolean = false,
+        /** Repeat a video when it reaches the end. */
+        val loopPlayback: Boolean = false,
     )
 
     private const val PREFS = "settings"
@@ -46,6 +50,8 @@ object Settings {
             showThumbnails = p.getBoolean("showThumbnails", true),
             showFullPath = p.getBoolean("showFullPath", false),
             folder = p.getString("folder", null)?.takeIf { it.isNotBlank() } ?: "Media Saver",
+            autoDownloadBest = p.getBoolean("autoDownloadBest", false),
+            loopPlayback = p.getBoolean("loopPlayback", false),
         )
     }
 
@@ -65,6 +71,8 @@ object Settings {
             .putBoolean("showThumbnails", next.showThumbnails)
             .putBoolean("showFullPath", next.showFullPath)
             .putString("folder", next.folder)
+            .putBoolean("autoDownloadBest", next.autoDownloadBest)
+            .putBoolean("loopPlayback", next.loopPlayback)
             .apply()
     }
 
