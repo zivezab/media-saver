@@ -132,31 +132,43 @@ connected lets it update.
 ## Posts that need an account
 
 Some posts are not served to a logged-out client at all. Anything marked
-sensitive on X is the common case - yt-dlp reports `NSFW tweet requires
-authentication` - and Vimeo and Reddit now refuse everything. This is a gate on
-having an account, not something the downloader can work around, so the app
-lets you supply your own login.
+sensitive on X is the common case, and Vimeo and Reddit now refuse everything.
+This is a gate on having an account, so the app lets you supply your own login
+as a Netscape cookies.txt, which it passes to yt-dlp with `--cookies`.
 
-Tap the account icon in the top bar. Two routes:
+Tap the account icon in the top bar.
 
-**Sign in inside the app.** Opens the site's own login page in a WebView. You
-sign in yourself; the app never sees your password, only the session cookies the
-site sets afterwards. Those are written as a Netscape `cookies.txt` in the app's
-private storage and passed to yt-dlp with `--cookies`.
+### Importing cookies.txt (the route that works)
 
-**Import a cookies.txt file.** Export one from a desktop browser and pick it
-here. This exists because X runs a bot-detection script (Castle) that can refuse
-to render its login form inside a WebView - it fails reliably on an emulator,
-where fingerprinting flags the device. If in-app sign-in shows a blank page on
-your phone, use this instead.
+1. On a computer, sign in to the site in your browser.
+2. Export cookies with a "Get cookies.txt LOCALLY" style extension. Export for
+   the site's domain, or everything.
+3. Copy the file to the phone.
+4. Account icon > **Import a cookies.txt file** > pick it.
 
-The cookie file holds a live session. It stays in app-private storage, is never
-logged, and *Sign out of all* deletes it and clears the WebView's cookies.
+The dialog then lists which sites it found a session for. That listing is
+derived by reading the file back and looking for each site's session cookie -
+not from a flag set at import time - so it cannot claim a sign-in that is not
+really there.
 
-One detail that matters if you touch this code: the cookie domain is written as
-`.x.com` with the include-subdomains flag set. yt-dlp looks the session up on
-`api.x.com`, so a cookie scoped to plain `x.com` would not be found and the app
-would silently stay logged out.
+### Signing in inside the app (mostly does not work)
+
+There is also an in-app WebView login, but **X, Instagram, Reddit and Vimeo all
+render a blank page in it**. That is deliberate on their part: embedded
+browsers are a phishing vector, so large sites detect and refuse them. It is
+not a bug in the WebView - point the same code at a normal page and it renders
+fine. The button is kept because it may work for smaller sites.
+
+### Notes for anyone changing this
+
+- The cookie domain is written as `.x.com` with the include-subdomains flag.
+  yt-dlp looks X's session up on `api.x.com`, so a cookie scoped to plain
+  `x.com` would not match and the app would silently stay logged out.
+- A capture only counts if the site's actual session cookie is present. Every
+  site hands a mere visitor throwaway cookies, so accepting "any cookie" would
+  report a successful sign-in for a login that never happened.
+- The file holds a live session. It stays in app-private storage, is never
+  logged, and *Sign out of all* deletes it and clears the WebView's cookies.
 
 ## Known limits
 
