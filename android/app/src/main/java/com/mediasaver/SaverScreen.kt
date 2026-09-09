@@ -262,13 +262,25 @@ fun SaverScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            val count = runCatching { CookieStore.importFrom(context, uri) }.getOrNull()
-            Toast.makeText(
-                context,
-                if (count != null) "Imported $count cookies"
-                else "That file is not in Netscape cookies.txt format.",
-                Toast.LENGTH_LONG,
-            ).show()
+            val result = runCatching { CookieStore.importFrom(context, uri) }.getOrNull()
+            val message = when {
+                result == null ->
+                    "That file is not a Netscape cookies.txt. Export it again with a " +
+                        "\"Get cookies.txt\" browser extension."
+                result.sites.isEmpty() ->
+                    // The commonest failure: exported while not actually signed in,
+                    // or for the wrong site. Say so instead of reporting success.
+                    "Imported ${result.cookies} cookies, but none of them is a login " +
+                        "for X, Instagram, Reddit or Vimeo. Sign in to the site in your " +
+                        "browser first, then export again."
+                else -> {
+                    val names = CookieStore.SITES
+                        .filter { it.key in result.sites }
+                        .joinToString { it.label }
+                    "Imported ${result.cookies} cookies. Signed in to $names."
+                }
+            }
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 

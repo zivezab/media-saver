@@ -79,9 +79,16 @@ object CookieStore {
         val lines = runCatching { target.readLines() }.getOrDefault(emptyList())
         val present = mutableSetOf<String>()
         for (site in SITES) {
+            val base = site.cookieDomain.removePrefix(".")
             val hasSession = lines.any { line ->
                 val parts = line.split('\t')
-                parts.size >= 7 && parts[0] == site.cookieDomain && parts[5] == site.sessionCookie
+                if (parts.size < 7 || parts[5] != site.sessionCookie) return@any false
+                // Exporters disagree about the leading dot: some write ".x.com"
+                // with the subdomains flag, others a host-only "x.com". Both are
+                // valid and yt-dlp accepts either, so match on the bare domain
+                // rather than on one exact spelling.
+                val domain = parts[0].removePrefix(".")
+                domain == base || domain.endsWith(".$base")
             }
             if (hasSession) present += site.key
         }
@@ -151,7 +158,9 @@ object CookieStore {
      * @return how many cookie lines were imported, or null if the file was not
      *   in Netscape format.
      */
-    fun importFrom(context: Context, uri: Uri): Int? {
+    data class ImportResult(val cookies: Int, val sites: Set<String>)
+
+    fun importFrom(context: Context, uri: Uri): ImportResult? {
         val text = context.contentResolver.openInputStream(uri)?.use {
             it.readBytes().decodeToString()
         } ?: return null
@@ -168,8 +177,9 @@ object CookieStore {
         val domains = cookieLines.mapNotNull { it.substringBefore('\t').removePrefix(".").ifBlank { null } }
             .map { it.substringBefore('.') }
             .toSet()
-        _signedIn.value = sitesInFile(context)
-        return cookieLines.size
+        val sites = sitesInFile(context)
+        _signedIn.value = sites
+        return ImportResult(cookieLines.size, sites)
     }
 
     fun signOut(context: Context) {
