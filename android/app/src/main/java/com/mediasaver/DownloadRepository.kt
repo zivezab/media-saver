@@ -70,7 +70,9 @@ object DownloadRepository {
     fun start(context: Context, id: String, url: String, selector: String, kind: Formats.Kind, label: String) {
         if (_jobs.value.any { it.id == id }) return
         val app = context.applicationContext
-        _jobs.value = _jobs.value + DownloadJob(id, url, selector, label, kind)
+        // Newest first: appending buried each new download under the finished
+        // ones, which is the opposite of what you want to look at.
+        _jobs.value = listOf(DownloadJob(id, url, selector, label, kind)) + _jobs.value
         running[id] = scope.launch { run(app, id, url, selector, kind) }
     }
 

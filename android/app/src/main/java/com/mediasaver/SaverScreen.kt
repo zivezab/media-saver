@@ -97,24 +97,33 @@ fun SaverScreen(
         consumePlayRequest()?.let { playing = it }
     }
 
-    // Keyed on the MediaInfo instance, and deliberately at the top level rather
-    // than inside the list: an effect placed in a lazy item would re-run every
-    // time that item scrolled back into view and queue the download again.
-    // A fresh lookup produces a fresh instance, so re-checking the same link
-    // does start a new download.
+    // The guard for "download this once" is held in the ViewModel, not here:
+    // leaving the app and returning recreates the Activity, and a flag kept in
+    // composition would reset and start the same download again.
     val resolved = state.info
-    LaunchedEffect(resolved) {
-        if (resolved == null || !settings.autoDownloadBest) return@LaunchedEffect
+    LaunchedEffect(state.pendingAutoDownload, resolved) {
+        if (!state.pendingAutoDownload || resolved == null) return@LaunchedEffect
         val best = resolved.options.firstOrNull { it.recommended }
             ?: resolved.options.firstOrNull()
             ?: return@LaunchedEffect
-        DownloadService.enqueue(
+        val jobId = DownloadService.enqueue(
             context = context,
             url = resolved.url,
             selector = best.selector,
             kind = best.kind,
             label = "${resolved.title} - ${best.title}",
         )
+        viewModel.autoDownloadStarted(jobId)
+    }
+
+    // Once an automatic download lands, reset the screen the way the clear
+    // button would, so the app is ready for the next link instead of sitting on
+    // a stale result.
+    val autoJobId = state.autoJobId
+    LaunchedEffect(autoJobId, jobs) {
+        if (autoJobId == null) return@LaunchedEffect
+        val job = jobs.firstOrNull { it.id == autoJobId } ?: return@LaunchedEffect
+        if (job.status == DownloadJob.Status.DONE) viewModel.clear()
     }
 
     val visible = remember(saved, query, settings) {

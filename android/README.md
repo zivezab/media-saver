@@ -241,13 +241,22 @@ grid, sort field and direction, group by site, thumbnails on or off, full file
 path on or off, and the download folder name.
 
 **Download best quality automatically** starts the best-quality download the
-moment a link resolves, skipping the quality list. Shared from another app, that
+moment a link resolves, skipping the quality list, and clears the screen once
+it finishes so the app is ready for the next link. Shared from another app, that
 makes the whole thing one tap. Note what "best" means here: the same preference
 the Best quality button has always used, which puts H.264 first for
 playability - on YouTube that is 1080p, not the 2160p VP9. It can still be a
 large file, so it is off by default.
 
-**Loop videos** restarts a video from the beginning when it ends. Changing the folder affects new
+**Loop videos** restarts a video from the beginning when it ends.
+
+**Pause when leaving the app** stops playback when you switch away, on by
+default. Turn it off to keep audio going in the background.
+
+The library sorts newest-first by default, and when sorting by date the site
+groups are ordered by their most recent item rather than alphabetically -
+otherwise the newest download hides under whichever site happens to sort first.
+The Downloads list is newest-first too. Changing the folder affects new
 downloads; files already saved stay where they are.
 
 ## File naming

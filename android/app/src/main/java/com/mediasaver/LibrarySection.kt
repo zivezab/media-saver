@@ -123,9 +123,16 @@ fun LazyListScope.librarySection(
     }
 
     if (settings.groupByDomain) {
-        val groups = entries.groupBy { it.sourceDomain.ifBlank { "Other" } }
-            .toList()
-            .sortedBy { it.first.lowercase() }
+        val grouped = entries.groupBy { it.sourceDomain.ifBlank { "Other" } }.toList()
+        val groups = if (settings.sortBy == Settings.SortBy.DATE) {
+            // Alphabetical group order would bury the newest download under
+            // whichever site happens to sort first, which defeats sorting by
+            // date entirely.
+            val byRecency = grouped.sortedBy { (_, items) -> items.maxOf { it.savedAt } }
+            if (settings.sortDescending) byRecency.reversed() else byRecency
+        } else {
+            grouped.sortedBy { it.first.lowercase() }
+        }
         groups.forEach { (domain, groupItems) ->
             item(key = "group-$domain") {
                 Text(
