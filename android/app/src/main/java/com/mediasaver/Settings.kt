@@ -28,6 +28,8 @@ object Settings {
         val autoDownloadBest: Boolean = false,
         /** Repeat a video when it reaches the end. */
         val loopPlayback: Boolean = false,
+        /** Pause playback when the app goes to the background. */
+        val pauseOnLeave: Boolean = true,
     )
 
     private const val PREFS = "settings"
@@ -52,6 +54,7 @@ object Settings {
             folder = p.getString("folder", null)?.takeIf { it.isNotBlank() } ?: "Media Saver",
             autoDownloadBest = p.getBoolean("autoDownloadBest", false),
             loopPlayback = p.getBoolean("loopPlayback", false),
+            pauseOnLeave = p.getBoolean("pauseOnLeave", true),
         )
     }
 
@@ -73,6 +76,7 @@ object Settings {
             .putString("folder", next.folder)
             .putBoolean("autoDownloadBest", next.autoDownloadBest)
             .putBoolean("loopPlayback", next.loopPlayback)
+            .putBoolean("pauseOnLeave", next.pauseOnLeave)
             .apply()
     }
 

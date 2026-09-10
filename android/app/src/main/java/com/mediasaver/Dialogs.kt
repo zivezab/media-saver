@@ -73,6 +73,15 @@ fun SettingsDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                SwitchRow("Pause when leaving the app", settings.pauseOnLeave) { v ->
+                    onChange { it.copy(pauseOnLeave = v) }
+                }
+                Text(
+                    "Stops playback when you switch to another app. Turn this off to " +
+                        "keep the audio going in the background.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 SectionLabel("Library")
                 ChipRow(

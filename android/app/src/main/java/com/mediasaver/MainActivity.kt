@@ -61,8 +61,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingSharedUrl = urlFromIntent(intent)
-        pendingPlay = playFromIntent(intent)
+        val sharedUrl = urlFromIntent(intent)
+        val play = playFromIntent(intent)
+
+        // Only rebuild for an intent that actually carries something. Returning
+        // to the app from the launcher delivers a plain MAIN intent here, and
+        // recreating on that tore down whatever was on screen - closing the
+        // player and stopping playback mid-video.
+        if (sharedUrl == null && play == null) return
+
+        pendingSharedUrl = sharedUrl
+        pendingPlay = play
         // Re-enter composition so the new intent is picked up.
         recreate()
     }
