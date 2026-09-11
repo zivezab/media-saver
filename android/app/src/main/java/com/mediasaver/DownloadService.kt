@@ -203,7 +203,10 @@ class DownloadService : Service() {
                 } else null
 
                 builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
-                    .setContentTitle("Saved - tap to play")
+                    .setContentTitle(
+                        if (job.mimeType?.startsWith("image/") == true) "Saved - tap to view"
+                        else "Saved - tap to play"
+                    )
                     .setContentText(job.savedAs ?: job.label)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(
                         listOfNotNull(job.savedAs, job.savedLocation).joinToString("\n")

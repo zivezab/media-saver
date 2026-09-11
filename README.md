@@ -19,6 +19,7 @@ media-saver/
 | Works on mobile data | Yes | No |
 | Saves to | Phone's Downloads | Whichever browser you opened it in |
 | Install size | Large (bundles Python + ffmpeg) | Small |
+| Photos | Yes, via gallery-dl | No |
 
 Both use [yt-dlp](https://github.com/yt-dlp/yt-dlp) to identify and fetch media,
 and [ffmpeg](https://ffmpeg.org/) to combine separate video and audio streams
@@ -74,8 +75,19 @@ is that it is not.
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense | Does the extraction in both programs |
 | [ffmpeg](https://ffmpeg.org/) | LGPL / GPL depending on build | Merges separate streams |
 | [youtubedl-android](https://github.com/JunkFood02/youtubedl-android) | GPL-3.0 | Ships yt-dlp, Python and ffmpeg to the phone |
+| [gallery-dl](https://github.com/mikf/gallery-dl) | GPL-2.0-only | Photos, in the Android app |
+| requests, urllib3, idna, charset_normalizer, certifi | Apache-2.0, MIT, BSD-3-Clause, MIT, MPL-2.0 | Bundled with gallery-dl |
 
 The Android app links `youtubedl-android`, which is GPL-3.0. If you distribute
 that app to anyone else, the GPL's terms apply to what you distribute — including
 making the corresponding source available. Keeping a build on your own phone is
 not distribution.
+
+gallery-dl is GPL-2.0-only, which is not compatible with GPL-3.0 for combining
+into a single work. It is not combined: it ships as a separate program inside
+`assets/gallery-dl.pyz`, runs in its own process under the Python interpreter,
+and talks to the app only through command-line arguments and its output. The
+licence texts of it and of each bundled dependency travel inside that archive.
+Anyone distributing the APK should still make gallery-dl's source available and
+satisfy both licences; this is a description of how it is built, not legal
+advice.

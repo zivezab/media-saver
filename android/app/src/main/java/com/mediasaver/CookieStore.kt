@@ -147,6 +147,7 @@ object CookieStore {
         runCatching { target.setReadable(false, false); target.setReadable(true, true) }
         val sites = sitesInFile(context)
         _signedIn.value = sites
+        Extractor.resetCookieRejections()
         return ImportResult(lines.size, sites)
     }
 

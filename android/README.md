@@ -129,6 +129,53 @@ update fixed it.
 If downloads start failing after a long period offline, opening the app while
 connected lets it update.
 
+## Photos
+
+yt-dlp is a video downloader, and deliberately so: its X extractor filters out
+photo media before it builds any formats, and Instagram's gives up on image
+posts. So a photo-only post used to fail with "No video could be found".
+
+Photos come from [gallery-dl](https://github.com/mikf/gallery-dl) instead. It is
+pure Python, so it runs on the same Python 3.12 that youtubedl-android already
+ships on the phone - there is no second runtime. yt-dlp is still asked first,
+because it is the better tool for video (format choice, merging, H.264). Only
+when it reports a post it cannot treat as video is gallery-dl tried, and if that
+finds nothing either, yt-dlp's error is the one shown, as the more specific.
+
+Photos save to `Pictures/Media Saver` at the original resolution, one library
+entry each, and open in an in-app viewer with pinch and double-tap zoom. They
+work with auto-download too.
+
+Things worth knowing:
+
+- **It is launched the way youtubedl-android launches yt-dlp**: the library's
+  `libpython.so`, a zipapp as the first argument, and the same six environment
+  variables. Those were read off a live yt-dlp process on the device rather than
+  guessed - and they depend on that library's on-disk layout, which is one more
+  reason it is pinned.
+- **It keeps itself current.** Once a day the app checks PyPI and, if there is a
+  newer gallery-dl, downloads the wheel. Wheels are zip files and gallery-dl is
+  pure Python, so the new one goes on the front of `sys.path` and wins over the
+  bundled copy. A downloaded wheel is only used when it is newer than what the
+  APK ships, so an app update is never shadowed by an older download.
+- **Rebuilding the bundled copy** is `tools/build-gallery-dl.sh [version]`. It
+  refuses any package with a compiled extension, which would have been built for
+  the Mac and would not load on the phone.
+- **Mixed posts** - a video alongside photos - currently save the video only,
+  since yt-dlp succeeds and gallery-dl is never asked.
+
+## Downloading in the background
+
+With auto-download on, a shared link is handed to the foreground service the
+moment it arrives, and the service does both the lookup and the download. You
+can switch apps immediately.
+
+This was not true before. The lookup ran in the UI's scope and the download was
+queued from the UI once it finished - by which time the user had often left, and
+Android 12+ forbids starting a foreground service from the background. The app
+crashed silently. A running foreground service is allowed to continue once you
+leave, so starting it while the app is still on screen is what makes this work.
+
 ## Posts that need an account
 
 Some posts are not served to a logged-out client. Anything marked sensitive on
@@ -159,6 +206,17 @@ and the dialog reports which sites it found. That check reads the file back
 rather than trusting what was pasted, so it cannot claim a sign-in that is not
 there. It cannot tell whether the session is still live - only that a login is
 present.
+
+### When a saved sign-in expires
+
+A session the site has since expired does not just fail to help - it breaks
+public posts as well. X answers yt-dlp with "Could not authenticate you" and
+gallery-dl with a 404, for a post anyone can see. So a lookup that fails with
+cookies is retried once without them, and the cookies are only blamed if the
+retry works; a valid session on a genuinely unavailable post fails both ways and
+is left alone. When it does happen, the post still downloads and the app says
+the sign-in has probably expired. Downloads from that site then skip the cookies
+until you save new ones.
 
 ### Notes for anyone changing this
 

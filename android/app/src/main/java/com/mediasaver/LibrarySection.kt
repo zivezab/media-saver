@@ -252,7 +252,7 @@ private fun ListCard(
                 FilledTonalButton(onClick = { onPlay(item) }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Play")
+                    Text(if (item.isImage) "View" else "Play")
                 }
                 OutlinedButton(onClick = { onShare(item) }) {
                     Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -301,7 +301,7 @@ private fun GridCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     IconButton(onClick = { onPlay(item) }) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = "Play")
+                        Icon(Icons.Filled.PlayArrow, contentDescription = if (item.isImage) "View" else "Play")
                     }
                     IconButton(onClick = { onShare(item) }) {
                         Icon(Icons.Filled.Share, contentDescription = "Share")
