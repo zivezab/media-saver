@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -19,7 +20,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
 
@@ -31,15 +31,21 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_PLAY_LOCATION = "play_location"
     }
 
-    private var pendingSharedUrl: String? = null
-    private var pendingPlay: SavedItem? = null
+    private val vm: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        pendingSharedUrl = urlFromIntent(intent)
-        pendingPlay = playFromIntent(intent)
+        // An Activity keeps its launch intent for life, and gets it back when it
+        // is rebuilt - on rotation, and when Android restores it after freeing
+        // memory. Reading the shared link on every onCreate therefore submitted
+        // it again each time: rotating after a share downloaded the file a
+        // second and a third time. Only a genuinely fresh launch counts, and a
+        // relaunch from the recents list is not one.
+        val fresh = savedInstanceState == null &&
+            (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+        if (fresh) handleIntent(intent)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val launcher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -48,32 +54,32 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MediaSaverTheme {
-                val vm: MainViewModel = viewModel()
-                SaverScreen(
-                    viewModel = vm,
-                    consumeSharedUrl = { pendingSharedUrl.also { pendingSharedUrl = null } },
-                    consumePlayRequest = { pendingPlay.also { pendingPlay = null } },
-                )
+                SaverScreen(viewModel = vm)
             }
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
-        val sharedUrl = urlFromIntent(intent)
+        // Handled in place. This used to recreate the Activity to get the new
+        // link into composition, which tore down whatever was on screen and was
+        // one more way for the link to be read twice.
+        handleIntent(intent)
+    }
+
+    /**
+     * Pass a shared link or a play request to the ViewModel, then replace the
+     * intent with a plain one so nothing downstream can read it a second time.
+     */
+    private fun handleIntent(intent: Intent?) {
+        val url = urlFromIntent(intent)
         val play = playFromIntent(intent)
-
-        // Only rebuild for an intent that actually carries something. Returning
-        // to the app from the launcher delivers a plain MAIN intent here, and
-        // recreating on that tore down whatever was on screen - closing the
-        // player and stopping playback mid-video.
-        if (sharedUrl == null && play == null) return
-
-        pendingSharedUrl = sharedUrl
-        pendingPlay = play
-        // Re-enter composition so the new intent is picked up.
-        recreate()
+        when {
+            url != null -> vm.submitSharedUrl(url)
+            play != null -> vm.requestPlay(play)
+            else -> return
+        }
+        setIntent(Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN))
     }
 
     /** A "tap to play" notification carries the file it just saved. */

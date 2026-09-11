@@ -61,11 +61,7 @@ import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SaverScreen(
-    viewModel: MainViewModel,
-    consumeSharedUrl: () -> String?,
-    consumePlayRequest: () -> SavedItem? = { null },
-) {
+fun SaverScreen(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsState()
     val jobs by DownloadRepository.jobs.collectAsState()
     val init by Extractor.init.collectAsState()
@@ -89,41 +85,13 @@ fun SaverScreen(
     val busy = state.looking
     val ready = init is Extractor.Init.Ready
 
-    LaunchedEffect(init) {
-        if (ready) consumeSharedUrl()?.let { viewModel.submitSharedUrl(it) }
-    }
-
-    LaunchedEffect(Unit) {
-        consumePlayRequest()?.let { playing = it }
-    }
-
-    // The guard for "download this once" is held in the ViewModel, not here:
-    // leaving the app and returning recreates the Activity, and a flag kept in
-    // composition would reset and start the same download again.
-    val resolved = state.info
-    LaunchedEffect(state.pendingAutoDownload, resolved) {
-        if (!state.pendingAutoDownload || resolved == null) return@LaunchedEffect
-        val best = resolved.options.firstOrNull { it.recommended }
-            ?: resolved.options.firstOrNull()
-            ?: return@LaunchedEffect
-        val jobId = DownloadService.enqueue(
-            context = context,
-            url = resolved.url,
-            selector = best.selector,
-            kind = best.kind,
-            label = "${resolved.title} - ${best.title}",
-        )
-        viewModel.autoDownloadStarted(jobId)
-    }
-
-    // Once an automatic download lands, reset the screen the way the clear
-    // button would, so the app is ready for the next link instead of sitting on
-    // a stale result.
-    val autoJobId = state.autoJobId
-    LaunchedEffect(autoJobId, jobs) {
-        if (autoJobId == null) return@LaunchedEffect
-        val job = jobs.firstOrNull { it.id == autoJobId } ?: return@LaunchedEffect
-        if (job.status == DownloadJob.Status.DONE) viewModel.clear()
+    // A play request from a "tap to play" notification, held in the ViewModel
+    // so a rebuilt Activity does not replay it.
+    LaunchedEffect(state.playRequest) {
+        state.playRequest?.let {
+            playing = it
+            viewModel.playRequestHandled()
+        }
     }
 
     val visible = remember(saved, query, settings) {
@@ -221,7 +189,7 @@ fun SaverScreen(
                     }
                     Button(
                         onClick = { keyboard?.hide(); viewModel.probe() },
-                        enabled = !busy && ready,
+                        enabled = !busy,
                         modifier = Modifier.weight(1f),
                     ) {
                         if (busy) {
@@ -248,6 +216,7 @@ fun SaverScreen(
                 else -> Unit
             }
 
+            state.notice?.let { item { Banner(it) } }
             state.error?.let { item { Banner(it, error = true) } }
 
             state.info?.let { info ->

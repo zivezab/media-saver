@@ -11,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -103,9 +104,20 @@ object Extractor {
         return Regex("""https?://\S+""").find(text)?.value?.trimEnd('.', ',', ')', ']')
     }
 
+    /**
+     * Suspend until the bundled runtime is unpacked and refreshed. Lets callers
+     * submit a link the moment it arrives - from a share, or from the service
+     * after a cold start - instead of each one having to wait on the UI.
+     */
+    suspend fun awaitReady() {
+        val state = init.first { it is Init.Ready || it is Init.Failed }
+        if (state is Init.Failed) error(state.message)
+    }
+
     suspend fun probe(rawUrl: String): MediaInfo = withContext(Dispatchers.IO) {
         val url = rawUrl.trim()
         require(url.isNotEmpty()) { "Paste a link first." }
+        awaitReady()
 
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")

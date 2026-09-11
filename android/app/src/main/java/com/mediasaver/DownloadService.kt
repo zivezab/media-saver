@@ -34,6 +34,7 @@ class DownloadService : Service() {
         private const val EXTRA_SELECTOR = "selector"
         private const val EXTRA_KIND = "kind"
         private const val EXTRA_LABEL = "label"
+        private const val EXTRA_AUTO = "auto"
 
         fun enqueue(
             context: Context,
@@ -50,8 +51,39 @@ class DownloadService : Service() {
                 putExtra(EXTRA_KIND, kind.name)
                 putExtra(EXTRA_LABEL, label)
             }
-            context.startForegroundService(intent)
+            startGuarded(context, intent, id, url)
             return id
+        }
+
+        /** Look the link up and fetch its best quality, all inside the service. */
+        fun enqueueAuto(context: Context, url: String): String {
+            val id = DownloadRepository.newId()
+            val intent = Intent(context, DownloadService::class.java).apply {
+                putExtra(EXTRA_ID, id)
+                putExtra(EXTRA_URL, url)
+                putExtra(EXTRA_AUTO, true)
+            }
+            startGuarded(context, intent, id, url)
+            return id
+        }
+
+        /**
+         * Android 12+ refuses to start a foreground service from the background
+         * and throws. The previous release hit exactly this - it queued the
+         * download from the UI after the user had switched away, and the app
+         * crashed. Every start now happens while the app is on screen, but if
+         * one ever does come from the background it is reported, not a crash.
+         */
+        private fun startGuarded(context: Context, intent: Intent, id: String, url: String) {
+            try {
+                context.startForegroundService(intent)
+            } catch (e: IllegalStateException) {
+                DownloadRepository.failToStart(
+                    id, url,
+                    "Android would not start the download while the app was in the " +
+                        "background. Open Media Saver and try again.",
+                )
+            }
         }
 
         fun createChannel(context: Context) {
@@ -116,7 +148,9 @@ class DownloadService : Service() {
         val kindName = intent?.getStringExtra(EXTRA_KIND)
         val label = intent?.getStringExtra(EXTRA_LABEL)
 
-        if (id != null && url != null && selector != null && kindName != null) {
+        if (id != null && url != null && intent?.getBooleanExtra(EXTRA_AUTO, false) == true) {
+            DownloadRepository.startAuto(this, id, url)
+        } else if (id != null && url != null && selector != null && kindName != null) {
             DownloadRepository.start(
                 context = this,
                 id = id,
