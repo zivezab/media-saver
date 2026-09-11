@@ -220,6 +220,7 @@ fun SaverScreen(viewModel: MainViewModel) {
             state.error?.let { item { Banner(it, error = true) } }
 
             state.info?.let { info ->
+                info.warning?.let { item { Banner(it) } }
                 item { MediaCard(info) }
                 items(info.options) { option ->
                     OptionRow(option) {
@@ -374,6 +375,17 @@ fun SaverScreen(viewModel: MainViewModel) {
     }
 
     playing?.let { item ->
+        if (item.mimeType.startsWith("image/")) {
+            ImageViewer(
+                item = item,
+                onOpenExternally = {
+                    SavedMedia.open(context, item.uri, item.mimeType)
+                    playing = null
+                },
+                onDismiss = { playing = null },
+            )
+            return@let
+        }
         PlayerSheet(
             item = item,
             onOpenExternally = {
@@ -618,7 +630,7 @@ private fun JobCard(job: DownloadJob, onPlay: (String) -> Unit) {
                     Button(
                         onClick = { onPlay(uri) },
                         modifier = Modifier.weight(1f),
-                    ) { Text("Play") }
+                    ) { Text(if (job.mimeType?.startsWith("image/") == true) "View" else "Play") }
                     OutlinedButton(onClick = { SavedMedia.share(context, uri, job.mimeType) }) {
                         Text("Share")
                     }

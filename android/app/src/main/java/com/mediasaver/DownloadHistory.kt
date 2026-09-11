@@ -21,6 +21,7 @@ data class SavedItem(
 ) {
     val isVideo get() = mimeType.startsWith("video/")
     val isAudio get() = mimeType.startsWith("audio/")
+    val isImage get() = mimeType.startsWith("image/")
     val fullPath get() = "$location/$displayName"
 }
 

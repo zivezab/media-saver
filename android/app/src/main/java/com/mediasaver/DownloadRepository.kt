@@ -75,6 +75,7 @@ object DownloadRepository {
 
     fun cancel(id: String) {
         YoutubeDL.getInstance().destroyProcessById(id)
+        GalleryDl.cancel(id)
         running.remove(id)?.cancel()
         update(id) { it.copy(status = DownloadJob.Status.CANCELLED, detail = "Stopped") }
     }
@@ -145,7 +146,75 @@ object DownloadRepository {
         running[id] = scope.launch { run(app, id, url, selector, kind) }
     }
 
+    /**
+     * Download a post's photos with gallery-dl and save each one, so every
+     * photo is its own entry in the gallery and in the library.
+     */
+    private fun runPhotos(app: Context, id: String, url: String) {
+        val workDir = File(app.cacheDir, "downloads/$id").apply { mkdirs() }
+        try {
+            update(id) { it.copy(detail = "Fetching photos") }
+            val files = GalleryDl.download(app, id, url, workDir) { done ->
+                update(id) { it.copy(detail = if (done == 1) "Fetched 1" else "Fetched $done") }
+            }
+
+            if (_jobs.value.firstOrNull { it.id == id }?.status == DownloadJob.Status.CANCELLED) return
+
+            update(id) { it.copy(status = DownloadJob.Status.SAVING, progress = 0.99f, detail = "Saving to your phone") }
+
+            val job = _jobs.value.firstOrNull { it.id == id }
+            val base = MediaStoreSaver.sanitize(job?.label?.substringBeforeLast(" - ") ?: "photo", "photo")
+            val saved = files.mapIndexed { index, file ->
+                val ext = file.extension.lowercase().ifBlank { "jpg" }
+                val name = if (files.size == 1) "$base.$ext" else "$base ${index + 1}.$ext"
+                val result = MediaStoreSaver.save(app, file, MediaStoreSaver.sanitize(name))
+                DownloadHistory.add(
+                    app,
+                    SavedItem(
+                        id = "$id-$index",
+                        title = job?.label ?: result.displayName,
+                        displayName = result.displayName,
+                        uri = result.uri,
+                        mimeType = result.mimeType,
+                        location = result.location,
+                        sizeBytes = file.length(),
+                        savedAt = System.currentTimeMillis() + index,
+                        sourceDomain = DownloadHistory.domainOf(url),
+                    ),
+                )
+                result
+            }
+
+            val first = saved.first()
+            update(id) {
+                it.copy(
+                    status = DownloadJob.Status.DONE,
+                    progress = 1f,
+                    savedAs = if (saved.size == 1) first.displayName else "${saved.size} files",
+                    savedUri = first.uri,
+                    mimeType = first.mimeType,
+                    savedLocation = first.location,
+                    detail = "Saved",
+                )
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "photo download failed", t)
+            if (_jobs.value.firstOrNull { it.id == id }?.status != DownloadJob.Status.CANCELLED) {
+                update(id) {
+                    it.copy(status = DownloadJob.Status.FAILED, error = Extractor.humanError(t, url), detail = "Failed")
+                }
+            }
+        } finally {
+            running.remove(id)
+            workDir.deleteRecursively()
+        }
+    }
+
     private fun run(app: Context, id: String, url: String, selector: String, kind: Formats.Kind) {
+        if (selector == Extractor.GALLERY_SELECTOR) {
+            runPhotos(app, id, url)
+            return
+        }
         val workDir = File(app.cacheDir, "downloads/$id").apply { mkdirs() }
         try {
             val formatString = Formats.toFormatString(selector, kind)
@@ -155,7 +224,7 @@ object DownloadRepository {
                 addOption("--no-mtime")
                 addOption("-f", formatString)
                 addOption("-o", File(workDir, "%(title).80B.%(ext)s").absolutePath)
-                Extractor.applyCookies(this)
+                Extractor.applyCookies(this, url)
                 if (kind != Formats.Kind.AUDIO) addOption("--merge-output-format", "mp4")
             }
 
