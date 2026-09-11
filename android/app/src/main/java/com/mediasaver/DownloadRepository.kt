@@ -57,6 +57,18 @@ object DownloadRepository {
         _jobs.value = _jobs.value.map { if (it.id == id) transform(it) else it }
     }
 
+    /**
+     * Record a download that could not even be started, so the user sees why
+     * when they come back instead of the link silently vanishing.
+     */
+    fun failToStart(id: String, url: String, message: String) {
+        val label = DownloadHistory.domainOf(url).ifBlank { url }
+        _jobs.value = listOf(
+            DownloadJob(id, url, "", label, Formats.Kind.VIDEO,
+                status = DownloadJob.Status.FAILED, error = message, detail = "Failed")
+        ) + _jobs.value
+    }
+
     fun clearFinished() {
         _jobs.value = _jobs.value.filter { it.active }
     }
@@ -65,6 +77,63 @@ object DownloadRepository {
         YoutubeDL.getInstance().destroyProcessById(id)
         running.remove(id)?.cancel()
         update(id) { it.copy(status = DownloadJob.Status.CANCELLED, detail = "Stopped") }
+    }
+
+    /**
+     * Look the link up and download its best quality, entirely inside the
+     * foreground service.
+     *
+     * Auto-download used to resolve the link in the UI and queue the download
+     * from there. Compose does not recompose while the app is in the
+     * background, so switching away mid-lookup left the download waiting until
+     * the user came back. Doing both steps here means leaving the app changes
+     * nothing: the service holds the process for the lookup as well as the
+     * download.
+     */
+    fun startAuto(context: Context, id: String, url: String) {
+        if (_jobs.value.any { it.id == id }) return
+        val app = context.applicationContext
+        val placeholder = DownloadHistory.domainOf(url).ifBlank { url }
+        _jobs.value = listOf(
+            DownloadJob(id, url, "best", placeholder, Formats.Kind.VIDEO, detail = "Reading link")
+        ) + _jobs.value
+
+        running[id] = scope.launch {
+            val info = try {
+                Extractor.probe(url)
+            } catch (t: Throwable) {
+                Log.e(TAG, "lookup failed", t)
+                update(id) {
+                    it.copy(status = DownloadJob.Status.FAILED, error = Extractor.humanError(t, url), detail = "Failed")
+                }
+                running.remove(id)
+                return@launch
+            }
+
+            // The user may have cancelled while the lookup was running.
+            if (_jobs.value.firstOrNull { it.id == id }?.status == DownloadJob.Status.CANCELLED) {
+                running.remove(id)
+                return@launch
+            }
+
+            val best = info.options.firstOrNull { it.recommended } ?: info.options.firstOrNull()
+            if (best == null) {
+                update(id) { it.copy(status = DownloadJob.Status.FAILED, error = "Nothing downloadable was found.", detail = "Failed") }
+                running.remove(id)
+                return@launch
+            }
+
+            update(id) {
+                it.copy(
+                    url = info.url,
+                    selector = best.selector,
+                    kind = best.kind,
+                    label = "${info.title} - ${best.title}",
+                    detail = "Starting",
+                )
+            }
+            run(app, id, info.url, best.selector, best.kind)
+        }
     }
 
     fun start(context: Context, id: String, url: String, selector: String, kind: Formats.Kind, label: String) {
