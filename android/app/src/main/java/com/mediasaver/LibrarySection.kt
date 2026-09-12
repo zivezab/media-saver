@@ -1,5 +1,6 @@
 package com.mediasaver
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -219,9 +220,11 @@ private fun ListCard(
                 MediaThumbnail(
                     item = item,
                     enabled = settings.showThumbnails,
+                    showPlayBadge = true,
                     modifier = Modifier
                         .size(width = 96.dp, height = 64.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onPlay(item) },
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -277,10 +280,12 @@ private fun GridCard(
             MediaThumbnail(
                 item = item,
                 enabled = settings.showThumbnails,
+                showPlayBadge = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(110.dp)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .clickable { onPlay(item) },
             )
             Column(Modifier.padding(10.dp)) {
                 Text(

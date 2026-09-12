@@ -246,6 +246,7 @@ survives restarts.
 | Layout | List or grid |
 | Thumbnails | Real poster frames, from MediaStore. Can be turned off |
 | Per item | Play, Share, and Delete with confirmation - Delete removes the file, not just the row |
+| Thumbnails | Tap one to open it. A play badge marks video, an expand badge a photo |
 | Playback | In-app, via ExoPlayer - no app switch |
 | Duplicates | Detected on size plus name; one button removes all but the newest of each, after confirming |
 
