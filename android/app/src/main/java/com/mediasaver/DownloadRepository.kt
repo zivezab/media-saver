@@ -147,14 +147,15 @@ object DownloadRepository {
     }
 
     /**
-     * Download a post's photos with gallery-dl and save each one, so every
-     * photo is its own entry in the gallery and in the library.
+     * Download a post's photos and videos with gallery-dl - all of them, or the
+     * positions in [range] - and save each one, so every item is its own entry
+     * in the gallery and in the library.
      */
-    private fun runPhotos(app: Context, id: String, url: String) {
+    private fun runGallery(app: Context, id: String, url: String, range: String?) {
         val workDir = File(app.cacheDir, "downloads/$id").apply { mkdirs() }
         try {
-            update(id) { it.copy(detail = "Fetching photos") }
-            val files = GalleryDl.download(app, id, url, workDir) { done ->
+            update(id) { it.copy(detail = "Fetching media") }
+            val files = GalleryDl.download(app, id, url, workDir, range) { done ->
                 update(id) { it.copy(detail = if (done == 1) "Fetched 1" else "Fetched $done") }
             }
 
@@ -163,10 +164,15 @@ object DownloadRepository {
             update(id) { it.copy(status = DownloadJob.Status.SAVING, progress = 0.99f, detail = "Saving to your phone") }
 
             val job = _jobs.value.firstOrNull { it.id == id }
-            val base = MediaStoreSaver.sanitize(job?.label?.substringBeforeLast(" - ") ?: "photo", "photo")
+            val base = MediaStoreSaver.sanitize(job?.label?.substringBeforeLast(" - ") ?: "media", "media")
             val saved = files.mapIndexed { index, file ->
                 val ext = file.extension.lowercase().ifBlank { "jpg" }
-                val name = if (files.size == 1) "$base.$ext" else "$base ${index + 1}.$ext"
+                // Number files by their place in the post, not in this batch:
+                // saving items 1 and 3 should give "1" and "3", not "1" and "2".
+                // A long run of digits is an id rather than a position.
+                val number = GalleryDl.trailingNumber(file.nameWithoutExtension)
+                    .takeIf { it in 1..999 }?.toInt() ?: (index + 1)
+                val name = if (files.size == 1 && range == null) "$base.$ext" else "$base $number.$ext"
                 val result = MediaStoreSaver.save(app, file, MediaStoreSaver.sanitize(name))
                 DownloadHistory.add(
                     app,
@@ -198,7 +204,7 @@ object DownloadRepository {
                 )
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "photo download failed", t)
+            Log.e(TAG, "gallery download failed", t)
             if (_jobs.value.firstOrNull { it.id == id }?.status != DownloadJob.Status.CANCELLED) {
                 update(id) {
                     it.copy(status = DownloadJob.Status.FAILED, error = Extractor.humanError(t, url), detail = "Failed")
@@ -211,8 +217,9 @@ object DownloadRepository {
     }
 
     private fun run(app: Context, id: String, url: String, selector: String, kind: Formats.Kind) {
-        if (selector == Extractor.GALLERY_SELECTOR) {
-            runPhotos(app, id, url)
+        if (Extractor.isGallerySelector(selector)) {
+            // "gallery-dl" alone means every item; "gallery-dl:1,3" a selection.
+            runGallery(app, id, url, selector.substringAfter(':', "").ifBlank { null })
             return
         }
         val workDir = File(app.cacheDir, "downloads/$id").apply { mkdirs() }

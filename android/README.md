@@ -161,8 +161,37 @@ Things worth knowing:
 - **Rebuilding the bundled copy** is `tools/build-gallery-dl.sh [version]`. It
   refuses any package with a compiled extension, which would have been built for
   the Mac and would not load on the phone.
-- **Mixed posts** - a video alongside photos - currently save the video only,
-  since yt-dlp succeeds and gallery-dl is never asked.
+- **Keep the bundled copy recent.** gallery-dl 1.32.11 broke on X for anyone
+  signed in: X moved the `ondemand.s` key that signed-in requests need from
+  `x.com/` to `x.com/home`, so the key parsed as `None` and every request died on
+  a 404 for `ondemand.s.Nonea.js`. Signed-out requests never touch that code,
+  which is why it looked fine without cookies. 1.32.12 reads `/home`; the app
+  ships it.
+
+## Posts with several photos and videos
+
+On X, Instagram, Bluesky, Threads, Tumblr, Reddit, Pixiv, Pinterest, TikTok,
+Weibo, Imgur and Flickr, a link is a post that can hold several items. yt-dlp
+sees only videos, and only one: on a post with a video and two photos it returns
+the video, and the photos are silently lost.
+
+For those sites gallery-dl lists the whole post, and yt-dlp is asked at the same
+time. They are separate processes, and asking one then the other would double
+the wait on the most common case. Then:
+
+- **Several items** - a "Download all" button, and a grid of the items with a
+  tick on each, so any subset can be saved instead. Photos show themselves;
+  videos show their duration, since no preview image comes with them.
+- **One photo** - a single Save photo button, as before.
+- **One video** - yt-dlp's result, so the quality choices are still there.
+
+A selection is downloaded with gallery-dl's `--range`, and saved files are
+numbered by their place in the post, so saving items 1 and 3 gives "1" and "3".
+Auto-download takes everything.
+
+On X, gallery-dl picks the same video stream as yt-dlp's best (720x1280 at
+2176k on the post tested), with its audio, so taking videos this way loses
+nothing.
 
 ## Downloading in the background
 
