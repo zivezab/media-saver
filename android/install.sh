@@ -6,6 +6,7 @@
 #   ./install.sh --build      force a rebuild first
 #   ./install.sh --reinstall  uninstall first, then install (keeps nothing)
 #   ./install.sh --devices    just list what adb can see, and exit
+#   ./install.sh --emulator   also accept an emulator (skipped by default)
 #
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -14,12 +15,13 @@ APK="app/build/outputs/apk/debug/app-debug.apk"
 PACKAGE="com.mediasaver"
 MIN_SDK=29
 
-BUILD=0; REINSTALL=0; LIST_ONLY=0
+BUILD=0; REINSTALL=0; LIST_ONLY=0; ALLOW_EMULATOR=0
 for arg in "$@"; do
   case "$arg" in
     --build) BUILD=1 ;;
     --reinstall) REINSTALL=1 ;;
     --devices) LIST_ONLY=1 ;;
+    --emulator) ALLOW_EMULATOR=1 ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -70,13 +72,27 @@ step "Looking for a phone"
 
 devices_raw="$("$ADB" devices | tail -n +2 | sed '/^[[:space:]]*$/d')"
 
+# Emulators are skipped unless asked for. This script is for putting the app on
+# a phone, and treating an emulator as one caused two quiet failures: with only
+# an emulator attached it installed there and reported success, and with a phone
+# attached as well it refused to choose. An emulator is often not even yours -
+# another project can be using it.
+skipped_emulators=0
+if [ "$ALLOW_EMULATOR" = 0 ]; then
+  skipped_emulators="$(printf '%s\n' "$devices_raw" | grep -c '^emulator-' || true)"
+  devices_raw="$(printf '%s\n' "$devices_raw" | grep -v '^emulator-' | sed '/^[[:space:]]*$/d' || true)"
+fi
+
 if [ "$LIST_ONLY" = 1 ]; then
   say "${devices_raw:-（none）}"
   exit 0
 fi
 
 if [ -z "$devices_raw" ]; then
-  die "No device found.
+  if [ "$skipped_emulators" -gt 0 ]; then
+    say "Skipped $skipped_emulators emulator(s). Pass --emulator to install onto one."
+  fi
+  die "No phone found.
 
 On the phone:
   1. Settings > About phone > tap 'Build number' seven times
