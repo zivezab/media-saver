@@ -38,11 +38,38 @@ object GalleryDl {
     private const val KEY_LAST_CHECK = "last_update_check"
     private val UPDATE_INTERVAL_MS = 24L * 60 * 60 * 1000
 
-    data class Photo(val url: String, val ext: String, val width: Int, val height: Int) {
+    /** One file in a post: a photo or a video. */
+    data class Photo(
+        val url: String,
+        val ext: String,
+        val width: Int,
+        val height: Int,
+        /** 1-based position in the post - what gallery-dl's --range counts. */
+        val position: Int,
+        val duration: Double = 0.0,
+        /** A small rendition for picker tiles, where the site offers one. */
+        val previewUrl: String = url,
+    ) {
         val isVideo get() = ext in setOf("mp4", "webm", "mov", "m4v", "mkv")
     }
 
-    data class Post(val url: String, val title: String, val author: String, val photos: List<Photo>)
+    data class Post(val url: String, val title: String, val author: String, val items: List<Photo>)
+
+    /**
+     * X serves every photo at any size from the same path. A picker tile needs
+     * the small one; loading "orig" into a thumbnail wastes megabytes per tile.
+     */
+    private fun previewFor(url: String): String {
+        if ("pbs.twimg.com/media/" !in url) return url
+        return if (Regex("""[?&]name=""").containsMatchIn(url)) {
+            url.replace(Regex("""name=[A-Za-z0-9]+"""), "name=small")
+        } else {
+            url + (if ('?' in url) "&" else "?") + "name=small"
+        }
+    }
+
+    /** A failure reported by gallery-dl itself, kept distinct from yt-dlp's. */
+    class GalleryDlException(message: String) : IllegalStateException(message)
 
     private val running = ConcurrentHashMap<String, Process>()
 
@@ -132,6 +159,9 @@ object GalleryDl {
             }
             val code = process.waitFor()
             errReader.join()
+            if (code != 0) {
+                Log.w(TAG, "gallery-dl exited $code: ${err.toString().takeLast(1500)}")
+            }
             return Result(code, out.toString(), err.toString())
         } finally {
             jobId?.let { running.remove(it) }
@@ -157,10 +187,18 @@ object GalleryDl {
         Extractor.awaitReady()
         val result = exec(context, listOf("-j") + cookieArgs(url, useCookies) + url)
 
-        val start = result.out.indexOf('[')
-        check(start >= 0) { errorMessage(result) }
-        val messages = runCatching { JSONArray(result.out.substring(start)) }
-            .getOrElse { error(errorMessage(result)) }
+        // -j prints a JSON array on stdout. A line such as "[twitter][info] ..."
+        // also starts with '[', so the array is located at the start of a line
+        // rather than at the first bracket anywhere.
+        val out = result.out
+        val start = when {
+            out.trimStart().startsWith("[\n") || out.trimStart().startsWith("[\r") ||
+                out.trimStart().startsWith("[ ") || out.trimStart().startsWith("[[") -> out.indexOf('[')
+            else -> Regex("""(?m)^\[\s*$""").find(out)?.range?.first ?: -1
+        }
+        if (start < 0) throw GalleryDlException(errorMessage(result))
+        val messages = runCatching { JSONArray(out.substring(start)) }
+            .getOrElse { throw GalleryDlException(errorMessage(result)) }
 
         val photos = mutableListOf<Photo>()
         var meta: JSONObject? = null
@@ -172,17 +210,21 @@ object GalleryDl {
                 3 -> {
                     val fileMeta = message.optJSONObject(2) ?: JSONObject()
                     meta = meta ?: fileMeta
+                    val mediaUrl = message.optString(1)
                     photos += Photo(
-                        url = message.optString(1),
+                        url = mediaUrl,
                         ext = fileMeta.optString("extension", "jpg").lowercase(),
                         width = fileMeta.optInt("width"),
                         height = fileMeta.optInt("height"),
+                        position = photos.size + 1,
+                        duration = fileMeta.optDouble("duration", 0.0).takeIf { !it.isNaN() } ?: 0.0,
+                        previewUrl = previewFor(mediaUrl),
                     )
                 }
                 -1 -> failure = message.optJSONObject(1)?.optString("message")
             }
         }
-        if (photos.isEmpty()) error(failure ?: errorMessage(result))
+        if (photos.isEmpty()) throw GalleryDlException(failure ?: errorMessage(result))
 
         val author = meta?.optJSONObject("author")?.optString("name")
             ?: meta?.optJSONObject("user")?.optString("name")
@@ -200,7 +242,7 @@ object GalleryDl {
             url = url,
             title = text ?: author.ifBlank { DownloadHistory.domainOf(url) },
             author = author,
-            photos = photos,
+            items = photos,
         )
     }
 
@@ -208,11 +250,21 @@ object GalleryDl {
      * Download every item in the post into [dir]. gallery-dl prints the path of
      * each file as it finishes, which is what drives the progress count.
      */
-    fun download(context: Context, jobId: String, url: String, dir: File, onFile: (Int) -> Unit): List<File> {
+    fun download(
+        context: Context,
+        jobId: String,
+        url: String,
+        dir: File,
+        /** gallery-dl --range, e.g. "1,3"; null for every item in the post. */
+        range: String? = null,
+        onFile: (Int) -> Unit,
+    ): List<File> {
         var done = 0
+        val args = mutableListOf("-D", dir.absolutePath, "--no-mtime")
+        if (!range.isNullOrBlank()) args += listOf("--range", range)
         val result = exec(
             context,
-            listOf("-D", dir.absolutePath, "--no-mtime") + cookieArgs(url) + url,
+            args + cookieArgs(url) + url,
             jobId = jobId,
             onLine = { line ->
                 // Skipped files are reported with a leading "#".
@@ -221,11 +273,16 @@ object GalleryDl {
         )
         val files = dir.listFiles()
             ?.filter { it.isFile && !it.name.endsWith(".part") }
-            ?.sortedBy { it.name }
+            // Numeric, not by name: "post_10" sorts before "post_2" as text.
+            ?.sortedWith(compareBy({ trailingNumber(it.nameWithoutExtension) }, { it.name }))
             .orEmpty()
-        check(files.isNotEmpty()) { errorMessage(result) }
+        if (files.isEmpty()) throw GalleryDlException(errorMessage(result))
         return files
     }
+
+    /** The item number gallery-dl puts at the end of a file name, if any. */
+    fun trailingNumber(stem: String): Long =
+        Regex("""(\d+)$""").find(stem)?.value?.toLongOrNull() ?: Long.MAX_VALUE
 
     private fun errorMessage(result: Result): String {
         val line = result.err.lines().lastOrNull { "error" in it.lowercase() }

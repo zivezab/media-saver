@@ -8,6 +8,7 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,8 +25,8 @@ data class MediaInfo(
     val source: String,
     val options: List<Formats.Option>,
     val allFormats: List<Formats.Row>,
-    /** Set when the post was resolved by gallery-dl: photos, not a video. */
-    val photos: List<GalleryDl.Photo> = emptyList(),
+    /** Every item in the post, when gallery-dl resolved it: photos and videos. */
+    val galleryItems: List<GalleryDl.Photo> = emptyList(),
     /** Something worth telling the user even though the lookup worked. */
     val warning: String? = null,
 )
@@ -147,31 +148,68 @@ object Extractor {
     }
 
     private suspend fun resolve(url: String, useCookies: Boolean): MediaInfo {
+        val context = appContext
+        if (context != null && isGalleryHost(url)) return resolvePost(context, url, useCookies)
+
+        return try {
+            ytdlpInfo(url, useCookies)
+        } catch (t: Throwable) {
+            // Elsewhere yt-dlp is the tool, and gallery-dl is only asked when
+            // yt-dlp says a link is not a video.
+            if (context != null && worthTryingPhotos(t)) {
+                val post = runCatching { GalleryDl.probe(context, url, useCookies) }
+                post.getOrNull()?.let { return galleryInfo(it) }
+                val photoError = post.exceptionOrNull()
+                Log.i(TAG, "gallery-dl failed too: ${photoError?.message}")
+                // yt-dlp already said "not a video", which explains nothing.
+                if (photoError is GalleryDl.GalleryDlException) throw photoError
+            }
+            throw t
+        }
+    }
+
+    /**
+     * Resolve a link to a social post, which can hold several photos and videos.
+     *
+     * yt-dlp sees only videos, and only one of them: on a post with a video and
+     * two photos it returns the video and the photos are silently lost. So
+     * gallery-dl lists the whole post. yt-dlp is still wanted when the post
+     * turns out to be a single video, for its quality options - so both are
+     * started at once. They are separate processes, and asking one then the
+     * other would double the wait on the most common case.
+     *
+     * yt-dlp is launched in this object's own scope rather than as a child of
+     * the lookup, deliberately: a child would have to finish before the lookup
+     * could return, and a multi-item post has no use for its answer.
+     */
+    private suspend fun resolvePost(context: Context, url: String, useCookies: Boolean): MediaInfo {
+        val video = scope.async { runCatching { ytdlpInfo(url, useCookies) } }
+        val gallery = runCatching { GalleryDl.probe(context, url, useCookies) }
+        val post = gallery.getOrNull()
+
+        if (post != null && (post.items.size >= 2 || !post.items.first().isVideo)) {
+            return galleryInfo(post)
+        }
+
+        val videoResult = video.await()
+        videoResult.getOrNull()?.let { return it }
+        if (post != null) return galleryInfo(post)
+
+        val videoError = videoResult.exceptionOrNull() ?: IllegalStateException("Nothing found.")
+        val galleryError = gallery.exceptionOrNull()
+        if (worthTryingPhotos(videoError) && galleryError is GalleryDl.GalleryDlException) throw galleryError
+        throw videoError
+    }
+
+    private fun ytdlpInfo(url: String, useCookies: Boolean): MediaInfo {
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("--socket-timeout", "20")
             if (useCookies) cookieFile()?.let { addOption("--cookies", it.absolutePath) }
         }
-        val info = try {
-            YoutubeDL.getInstance().getInfo(request)
-        } catch (t: Throwable) {
-            // yt-dlp is kept first because it is the better video tool. Only
-            // when it reports a post it cannot treat as video is gallery-dl
-            // asked, and if that finds nothing either the original error is the
-            // one reported - it is the more specific of the two.
-            val context = appContext
-            if (context != null && worthTryingPhotos(t)) {
-                val post = runCatching { GalleryDl.probe(context, url, useCookies) }
-                    .onFailure { Log.i(TAG, "gallery-dl found nothing either: ${it.message}") }
-                    .getOrNull()
-                if (post != null) return photoInfo(post)
-            }
-            throw t
-        }
+        val info = YoutubeDL.getInstance().getInfo(request)
         val (options, rows) = Formats.build(info)
-
         val thumb = info.thumbnail ?: info.thumbnails?.lastOrNull()?.url
-
         return MediaInfo(
             url = info.webpageUrl ?: url,
             title = info.title?.takeIf { it.isNotBlank() } ?: "Untitled",
@@ -183,6 +221,26 @@ object Extractor {
             allFormats = rows,
         )
     }
+
+    /** Sites where a link is a post that can hold several photos and videos. */
+    private val GALLERY_HOSTS = listOf(
+        "x.com", "twitter.com", "instagram.com", "bsky.app", "threads.net", "threads.com",
+        "tumblr.com", "reddit.com", "pixiv.net", "pinterest.com", "tiktok.com",
+        "weibo.com", "weibo.cn", "imgur.com", "flickr.com",
+    )
+
+    fun isGalleryHost(url: String): Boolean {
+        val host = DownloadHistory.domainOf(url)
+        return GALLERY_HOSTS.any { host == it || host.endsWith(".$it") }
+    }
+
+    /** Selector for a gallery download: every item, or only the given positions. */
+    fun gallerySelector(positions: Collection<Int> = emptyList()): String =
+        if (positions.isEmpty()) GALLERY_SELECTOR
+        else GALLERY_SELECTOR + ":" + positions.sorted().joinToString(",")
+
+    fun isGallerySelector(selector: String): Boolean =
+        selector == GALLERY_SELECTOR || selector.startsWith("$GALLERY_SELECTOR:")
 
     /** Hosts whose saved session was proven bad this run, so downloads skip it too. */
     private val cookiesRejected = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -210,37 +268,37 @@ object Extractor {
         ).any { it in message }
     }
 
-    private fun photoInfo(post: GalleryDl.Post): MediaInfo {
-        val images = post.photos.count { !it.isVideo }
-        val videos = post.photos.size - images
+    private fun galleryInfo(post: GalleryDl.Post): MediaInfo {
+        val items = post.items
+        val images = items.count { !it.isVideo }
+        val videos = items.size - images
         val counts = listOfNotNull(
             images.takeIf { it > 0 }?.let { if (it == 1) "1 photo" else "$it photos" },
             videos.takeIf { it > 0 }?.let { if (it == 1) "1 video" else "$it videos" },
         ).joinToString(", ")
-        val first = post.photos.first()
-        val detail = if (post.photos.size == 1 && first.width > 0) {
-            "${first.ext.uppercase()} · ${first.width}×${first.height}"
-        } else {
-            "Original size"
+        val first = items.first()
+        val size = if (first.width > 0) "${first.ext.uppercase()} · ${first.width}×${first.height}" else first.ext.uppercase()
+
+        val option = when {
+            items.size == 1 && !first.isVideo ->
+                Formats.Option(GALLERY_SELECTOR, "Save photo", size, Formats.Kind.IMAGE, recommended = true)
+            items.size == 1 ->
+                Formats.Option(GALLERY_SELECTOR, "Save video", size, Formats.Kind.VIDEO, recommended = true)
+            else ->
+                Formats.Option(GALLERY_SELECTOR, "Download all ${items.size}", counts, Formats.Kind.IMAGE, recommended = true)
         }
+
         return MediaInfo(
             url = post.url,
             title = post.title,
             uploader = post.author,
             durationSec = 0,
-            thumbnail = post.photos.firstOrNull { !it.isVideo }?.url ?: first.url,
-            source = "Photos",
-            options = listOf(
-                Formats.Option(
-                    selector = GALLERY_SELECTOR,
-                    title = if (post.photos.size == 1 && images == 1) "Save photo" else "Save $counts",
-                    subtitle = detail,
-                    kind = Formats.Kind.IMAGE,
-                    recommended = true,
-                )
-            ),
+            // A video URL is not an image, so a video-only post shows the icon.
+            thumbnail = items.firstOrNull { !it.isVideo }?.previewUrl,
+            source = if (items.size > 1) counts else if (first.isVideo) "Video" else "Photo",
+            options = listOf(option),
             allFormats = emptyList(),
-            photos = post.photos,
+            galleryItems = items,
         )
     }
 
@@ -297,6 +355,20 @@ object Extractor {
             // restricted posts, and yt-dlp only recognises a tombstone that
             // carries explanatory text - so a gated post lands here too, saying
             // nothing about the sign-in that would actually fix it.
+            t is GalleryDl.GalleryDlException && isXLink(url) &&
+                ("unavailable" in low || "403" in low || "401" in low) -> when {
+                signedInToX() ->
+                    "X would not show this post's media even though you are signed in. " +
+                        "Your X session has probably expired - sign in again from the account button."
+                else ->
+                    "X hides restricted and sensitive posts from signed-out apps. Sign in " +
+                        "to X from the account button at the top, then try again."
+            }
+            t is GalleryDl.GalleryDlException && ("no results" in low || "no photos" in low) ->
+                "That post has no photos or videos to save."
+            t is GalleryDl.GalleryDlException ->
+                "The photo extractor could not read that post (${msg.take(120)}). It " +
+                    "updates itself daily, so this often clears up - try again later."
             "could not authenticate" in low || "bad authentication" in low ->
                 "The site rejected your saved sign-in - it has probably expired. " +
                     "Sign in again from the account button."

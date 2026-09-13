@@ -57,6 +57,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +85,14 @@ fun SaverScreen(viewModel: MainViewModel) {
     var pendingDelete by remember { mutableStateOf<SavedItem?>(null) }
     var confirmDedupe by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf<SavedItem?>(null) }
+
+    // Which items of a multi-item post are ticked. Everything starts ticked, so
+    // the common case - take it all - needs no extra taps.
+    val selectedItems = remember(state.info) {
+        mutableStateListOf<Int>().apply {
+            state.info?.galleryItems?.map { it.position }?.let { addAll(it) }
+        }
+    }
     var query by remember { mutableStateOf("") }
 
     // While a lookup is running the field is read-only, so the URL cannot change
@@ -233,6 +248,69 @@ fun SaverScreen(viewModel: MainViewModel) {
                         )
                     }
                 }
+                if (info.galleryItems.size >= 2) {
+                    val total = info.galleryItems.size
+                    item(key = "picker-header") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Or choose which to save", style = MaterialTheme.typography.titleSmall)
+                            val allTicked = selectedItems.size == total
+                            TextButton(onClick = {
+                                selectedItems.clear()
+                                if (!allTicked) selectedItems.addAll(info.galleryItems.map { it.position })
+                            }) { Text(if (allTicked) "Select none" else "Select all") }
+                        }
+                    }
+                    // Rows of three: the screen is one lazy list, which cannot
+                    // hold a lazy grid.
+                    info.galleryItems.chunked(3).forEachIndexed { rowIndex, row ->
+                        item(key = "picker-row-$rowIndex") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                row.forEach { media ->
+                                    PickerTile(
+                                        media = media,
+                                        selected = media.position in selectedItems,
+                                        onToggle = {
+                                            if (media.position in selectedItems) selectedItems.remove(media.position)
+                                            else selectedItems.add(media.position)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
+                    }
+                    item(key = "picker-action") {
+                        val count = selectedItems.size
+                        OutlinedButton(
+                            onClick = {
+                                DownloadService.enqueue(
+                                    context = context,
+                                    url = info.url,
+                                    selector = Extractor.gallerySelector(selectedItems.toList()),
+                                    kind = Formats.Kind.IMAGE,
+                                    label = "${info.title} - $count of $total",
+                                )
+                            },
+                            // Everything ticked is what "Download all" above is for.
+                            enabled = count in 1 until total,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                when (count) {
+                                    0 -> "Tick the items you want"
+                                    total -> "Untick any you don't want"
+                                    else -> "Download selected ($count)"
+                                }
+                            )
+                        }
+                    }
+                }
+
                 if (info.allFormats.size > 1) {
                     item {
                         TextButton(onClick = viewModel::toggleAllFormats) {
@@ -457,6 +535,55 @@ private fun importMessage(result: CookieStore.ImportResult?): String = when {
     else -> {
         val names = CookieStore.SITES.filter { it.key in result.sites }.joinToString { it.label }
         "Imported ${result.cookies} cookies. Signed in to $names."
+    }
+}
+
+/** One item of a multi-item post, with a tick to include it or leave it out. */
+@Composable
+private fun PickerTile(
+    media: GalleryDl.Photo,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label = if (media.isVideo) "Video ${media.position}" else "Photo ${media.position}"
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClickLabel = if (selected) "Leave out" else "Include") { onToggle() },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!media.isVideo) {
+            AsyncImage(
+                model = media.previewUrl,
+                contentDescription = label,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+            )
+        } else {
+            // No preview image comes with a video item, so say what it is.
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Filled.Movie, contentDescription = label)
+                if (media.duration > 0) {
+                    Text(
+                        Formats.humanDuration(media.duration.toInt()),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+        }
+        Icon(
+            if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(6.dp)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(50))
+                .size(22.dp),
+        )
     }
 }
 
