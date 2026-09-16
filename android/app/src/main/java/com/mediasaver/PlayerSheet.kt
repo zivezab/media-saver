@@ -73,6 +73,12 @@ import kotlin.math.abs
 @Composable
 fun PlayerSheet(
     item: SavedItem,
+    /** Where this sits in the list being viewed, for the "3 of 12" counter. */
+    position: Int = 1,
+    total: Int = 1,
+    /** Null at the ends of the list. */
+    onNext: (() -> Unit)? = null,
+    onPrevious: (() -> Unit)? = null,
     onOpenExternally: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -165,23 +171,63 @@ fun PlayerSheet(
                 // multi-finger events are taken, so single taps still reach the
                 // player's own controller.
                 .pointerInput(item.uri) {
+                    // A vertical flick has to travel this far before it counts,
+                    // so ordinary taps and the seek bar are left alone.
+                    val swipeThreshold = size.height * 0.12f
+                    var dragging = false
+                    var travelled = Offset.Zero
+                    var handled = false
+
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                            if (event.changes.size < 2) continue
 
-                            val gestureZoom = event.calculateZoom()
-                            val pan = event.calculatePan()
-                            if (gestureZoom == 1f && pan == Offset.Zero) continue
+                            if (event.changes.size >= 2) {
+                                // Two fingers: zoom and pan, never navigation.
+                                dragging = false
+                                handled = true
 
-                            val next = (scale * gestureZoom).coerceIn(1f, 6f)
-                            offset = if (next <= 1f) Offset.Zero
-                            else clampOffset(offset + pan, next)
-                            scale = next
+                                val gestureZoom = event.calculateZoom()
+                                val pan = event.calculatePan()
+                                if (gestureZoom == 1f && pan == Offset.Zero) continue
 
-                            // Claim the gesture so the controller does not also
-                            // react to the fingers moving.
-                            event.changes.forEach { it.consume() }
+                                val zoomed = (scale * gestureZoom).coerceIn(1f, 6f)
+                                offset = if (zoomed <= 1f) Offset.Zero
+                                else clampOffset(offset + pan, zoomed)
+                                scale = zoomed
+
+                                // Claim the gesture so the controller does not
+                                // also react to the fingers moving.
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+
+                            val touch = event.changes.firstOrNull() ?: continue
+                            if (!touch.pressed) {
+                                dragging = false
+                                continue
+                            }
+                            // Only a drag that starts here counts. Moving to the
+                            // next video restarts this block while the finger is
+                            // still on the glass, and that same drag must not
+                            // carry on into a second skip.
+                            if (!dragging) {
+                                if (touch.previousPressed) continue
+                                dragging = true
+                                handled = false
+                                travelled = Offset.Zero
+                            }
+                            travelled += touch.position - touch.previousPosition
+
+                            // Only when the picture is not zoomed in - once it
+                            // is, dragging means moving around the frame.
+                            if (handled || scale > 1f) continue
+                            val vertical = kotlin.math.abs(travelled.y)
+                            if (vertical > swipeThreshold && vertical > kotlin.math.abs(travelled.x) * 1.5f) {
+                                if (travelled.y < 0) onNext?.invoke() else onPrevious?.invoke()
+                                handled = true
+                                touch.consume()
+                            }
                         }
                     }
                 },
@@ -208,6 +254,11 @@ fun PlayerSheet(
                     }
                 },
                 update = { view ->
+                    // The view outlives any one video: swiping to the next
+                    // file builds a new player, and the view has to follow it
+                    // rather than keep showing the released one.
+                    if (view.player !== player) view.player = player
+                    if (playerView !== view) playerView = view
                     view.resizeMode =
                         if (cropToFill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         else AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -254,14 +305,23 @@ fun PlayerSheet(
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                 }
-                Text(
-                    item.displayName,
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        item.displayName,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (total > 1) {
+                        Text(
+                            "$position of $total",
+                            color = Color(0xCCFFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                        )
+                    }
+                }
                 IconButton(
                     onClick = { scale = (scale - 0.5f).coerceAtLeast(1f).also { if (it <= 1f) offset = Offset.Zero } },
                     enabled = scale > 1f,
