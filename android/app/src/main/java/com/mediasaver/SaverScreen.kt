@@ -84,7 +84,11 @@ fun SaverScreen(viewModel: MainViewModel) {
     var showSettings by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<SavedItem?>(null) }
     var confirmDedupe by remember { mutableStateOf(false) }
-    var playing by remember { mutableStateOf<SavedItem?>(null) }
+    // The viewer holds the list it was opened from, frozen at that moment, so
+    // swiping moves through exactly what was on screen - and a later re-sort
+    // does not shuffle the deck underfoot.
+    var viewerList by remember { mutableStateOf<List<SavedItem>>(emptyList()) }
+    var viewerIndex by remember { mutableStateOf(-1) }
 
     // Which items of a multi-item post are ticked. Everything starts ticked, so
     // the common case - take it all - needs no extra taps.
@@ -103,8 +107,9 @@ fun SaverScreen(viewModel: MainViewModel) {
     // A play request from a "tap to play" notification, held in the ViewModel
     // so a rebuilt Activity does not replay it.
     LaunchedEffect(state.playRequest) {
-        state.playRequest?.let {
-            playing = it
+        state.playRequest?.let { requested ->
+            viewerList = listOf(requested)
+            viewerIndex = 0
             viewModel.playRequestHandled()
         }
     }
@@ -359,8 +364,14 @@ fun SaverScreen(viewModel: MainViewModel) {
                 }
                 items(jobs, key = { it.id }) { job ->
                     JobCard(job) { uri ->
-                        playing = saved.firstOrNull { it.uri == uri }
-                            ?: SavedItem(
+                        val known = visible.indexOfFirst { it.uri == uri }
+                        if (known >= 0) {
+                            viewerList = visible
+                            viewerIndex = known
+                            return@JobCard
+                        }
+                        viewerList = listOf(
+                            saved.firstOrNull { it.uri == uri } ?: SavedItem(
                                 id = job.id,
                                 title = job.label,
                                 displayName = job.savedAs ?: job.label,
@@ -370,6 +381,8 @@ fun SaverScreen(viewModel: MainViewModel) {
                                 sizeBytes = 0,
                                 savedAt = System.currentTimeMillis(),
                             )
+                        )
+                        viewerIndex = 0
                     }
                 }
             }
@@ -395,7 +408,10 @@ fun SaverScreen(viewModel: MainViewModel) {
                         )
                     }
                 },
-                onPlay = { playing = it },
+                onPlay = { tapped ->
+                    viewerList = visible
+                    viewerIndex = visible.indexOfFirst { it.uri == tapped.uri }.coerceAtLeast(0)
+                },
                 onShare = { SavedMedia.share(context, it.uri, it.mimeType) },
                 onDelete = { pendingDelete = it },
             )
@@ -452,26 +468,38 @@ fun SaverScreen(viewModel: MainViewModel) {
         )
     }
 
-    playing?.let { item ->
+    if (viewerIndex in viewerList.indices) {
+        val item = viewerList[viewerIndex]
+        val close = { viewerIndex = -1 }
+        val openOutside = {
+            SavedMedia.open(context, item.uri, item.mimeType)
+            viewerIndex = -1
+        }
+        // Swiping past either end simply stops, rather than wrapping around.
+        val next = if (viewerIndex < viewerList.lastIndex) ({ viewerIndex += 1 }) else null
+        val previous = if (viewerIndex > 0) ({ viewerIndex -= 1 }) else null
+
         if (item.mimeType.startsWith("image/")) {
             ImageViewer(
                 item = item,
-                onOpenExternally = {
-                    SavedMedia.open(context, item.uri, item.mimeType)
-                    playing = null
-                },
-                onDismiss = { playing = null },
+                position = viewerIndex + 1,
+                total = viewerList.size,
+                onNext = next,
+                onPrevious = previous,
+                onOpenExternally = openOutside,
+                onDismiss = close,
             )
-            return@let
+        } else {
+            PlayerSheet(
+                item = item,
+                position = viewerIndex + 1,
+                total = viewerList.size,
+                onNext = next,
+                onPrevious = previous,
+                onOpenExternally = openOutside,
+                onDismiss = close,
+            )
         }
-        PlayerSheet(
-            item = item,
-            onOpenExternally = {
-                SavedMedia.open(context, item.uri, item.mimeType)
-                playing = null
-            },
-            onDismiss = { playing = null },
-        )
     }
 
     pendingDelete?.let { item ->

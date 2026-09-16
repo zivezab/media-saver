@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,6 +50,12 @@ import coil.compose.AsyncImage
 @Composable
 fun ImageViewer(
     item: SavedItem,
+    /** Where this sits in the list being viewed, for the "3 of 12" counter. */
+    position: Int = 1,
+    total: Int = 1,
+    /** Null at the ends of the list. */
+    onNext: (() -> Unit)? = null,
+    onPrevious: (() -> Unit)? = null,
     onOpenExternally: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -72,8 +79,22 @@ fun ImageViewer(
                 .background(Color.Black)
                 .onSizeChanged { viewport = it }
                 .pointerInput(item.uri) {
+                    // A vertical drag at normal size moves to the next or
+                    // previous item; once zoomed in, dragging moves around the
+                    // picture instead.
+                    val swipeThreshold = size.height * 0.12f
+                    var travelled = 0f
                     detectTransformGestures { _, pan, zoom, _ ->
                         val next = (scale * zoom).coerceIn(1f, 6f)
+                        if (next <= 1f && zoom == 1f) {
+                            travelled += pan.y
+                            if (kotlin.math.abs(travelled) > swipeThreshold) {
+                                if (travelled < 0) onNext?.invoke() else onPrevious?.invoke()
+                                travelled = 0f
+                            }
+                        } else {
+                            travelled = 0f
+                        }
                         offset = clamp(offset + pan, next)
                         scale = next
                     }
@@ -111,14 +132,23 @@ fun ImageViewer(
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                 }
-                Text(
-                    item.displayName,
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        item.displayName,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (total > 1) {
+                        Text(
+                            "$position of $total",
+                            color = Color(0xCCFFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                        )
+                    }
+                }
                 IconButton(onClick = { SavedMedia.share(context, item.uri, item.mimeType) }) {
                     Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White)
                 }
