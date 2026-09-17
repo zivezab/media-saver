@@ -127,6 +127,14 @@ browser  ──POST /api/jobs───▶  background thread downloads to .work/
          ──GET  .../file ────▶  served as Content-Disposition: attachment
 ```
 
+Threads links are the exception to "yt-dlp does the extraction": yt-dlp has no
+Threads extractor, so the server uses Media Saver's own reader in
+[`../shared/extractors/threads.py`](../shared/extractors/threads.py), the same
+file the Android app uses. It offers each photo or video in a post, plus a zip of
+all of them. Its options use selectors such as `threads:2` and `threads:all`,
+and the job reads the post again when it starts, because the media links are
+signed and expire. Only public posts work.
+
 The download happens on the server rather than in the page because browsers
 cannot fetch cross-origin media, and because separate video and audio streams
 have to be merged before they are a usable file. Finished files live in `.work/`

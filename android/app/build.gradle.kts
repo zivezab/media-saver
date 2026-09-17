@@ -8,6 +8,11 @@ android {
     namespace = "com.mediasaver"
     compileSdk = 36
 
+    // Extractors for sites gallery-dl lacks. They live outside the app because
+    // the web server imports the same files; this packs them in as
+    // assets/extractors/*.py.
+    sourceSets["main"].assets.srcDir("../../shared")
+
     defaultConfig {
         applicationId = "com.mediasaver"
         minSdk = 29

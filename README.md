@@ -9,7 +9,8 @@ different situations:
 ```
 media-saver/
 ├── android/    Standalone Android app - extraction runs on the phone
-└── server/     Self-hosted server + mobile web UI - extraction runs on a Mac
+├── server/     Self-hosted server + mobile web UI - extraction runs on a Mac
+└── shared/     Extractors for sites yt-dlp and gallery-dl lack, used by both
 ```
 
 | | `android/` | `server/` |
@@ -19,11 +20,15 @@ media-saver/
 | Works on mobile data | Yes | No |
 | Saves to | Phone's Downloads | Whichever browser you opened it in |
 | Install size | Large (bundles Python + ffmpeg) | Small |
-| Photos | Yes, via gallery-dl | No |
+| Photos | Yes, via gallery-dl | Threads only |
 
 Both use [yt-dlp](https://github.com/yt-dlp/yt-dlp) to identify and fetch media,
 and [ffmpeg](https://ffmpeg.org/) to combine separate video and audio streams
 into one playable file.
+
+Threads is supported by neither yt-dlp nor gallery-dl, so Media Saver carries its
+own reader in [`shared/extractors/threads.py`](shared/extractors/threads.py). It
+handles photos, videos and carousels in public posts, and both programs use it.
 
 Each directory has its own README with setup and usage:
 
