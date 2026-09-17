@@ -82,6 +82,16 @@ fun SettingsDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                SwitchRow("Show playback buttons on tap", settings.playbackButtonsOnTap) { v ->
+                    onChange { it.copy(playbackButtonsOnTap = v) }
+                }
+                Text(
+                    "Tapping a video shows rewind, play/pause and forward over it. Turn " +
+                        "this off to keep the picture clear: a tap then just pauses or " +
+                        "resumes, and the seek bar still appears.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 SectionLabel("Library")
                 ChipRow(

@@ -30,6 +30,11 @@ object Settings {
         val loopPlayback: Boolean = false,
         /** Pause playback when the app goes to the background. */
         val pauseOnLeave: Boolean = true,
+        /**
+         * Tapping a playing video brings up rewind, play/pause and forward. Off
+         * leaves only the seek bar, and a tap pauses or resumes instead.
+         */
+        val playbackButtonsOnTap: Boolean = true,
     )
 
     private const val PREFS = "settings"
@@ -55,6 +60,7 @@ object Settings {
             autoDownloadBest = p.getBoolean("autoDownloadBest", false),
             loopPlayback = p.getBoolean("loopPlayback", false),
             pauseOnLeave = p.getBoolean("pauseOnLeave", true),
+            playbackButtonsOnTap = p.getBoolean("playbackButtonsOnTap", true),
         )
     }
 
@@ -77,6 +83,7 @@ object Settings {
             .putBoolean("autoDownloadBest", next.autoDownloadBest)
             .putBoolean("loopPlayback", next.loopPlayback)
             .putBoolean("pauseOnLeave", next.pauseOnLeave)
+            .putBoolean("playbackButtonsOnTap", next.playbackButtonsOnTap)
             .apply()
     }
 
