@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -65,6 +66,8 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -533,24 +536,74 @@ fun SaverScreen(viewModel: MainViewModel) {
             onDismissRequest = { confirmDedupe = false },
             title = { Text("Remove duplicates?") },
             text = {
-                Text(
-                    (if (removable.size == 1)
-                        "1 file looks like a repeat of something you already have"
-                    else
-                        "${removable.size} files look like repeats of things you already have") +
-                        " - same size and name. The newest copy of each is kept; the rest " +
-                        "are deleted from the phone. This cannot be undone."
-                )
+                Column {
+                    Text(
+                        (if (removable.size == 1) "1 file matches" else "${removable.size} files match") +
+                            " something you already have - same size and name. The newest " +
+                            "copy of each is kept; the others are deleted from the phone. " +
+                            "This cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    // Every file named, so nothing is deleted sight unseen.
+                    LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                        duplicateGroups.forEachIndexed { index, group ->
+                            if (index > 0) item(key = "gap-$index") { Spacer(Modifier.height(12.dp)) }
+                            item(key = "keep-${group.first().id}") {
+                                DuplicateRow(group.first(), keep = true)
+                            }
+                            items(group.drop(1), key = { "delete-${it.id}" }) {
+                                DuplicateRow(it, keep = false)
+                            }
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
                     val removed = DownloadHistory.deleteAll(context, removable.map { it.id })
                     confirmDedupe = false
                     Toast.makeText(context, "Removed $removed duplicates", Toast.LENGTH_SHORT).show()
-                }) { Text("Remove") }
+                }) { Text("Delete ${removable.size}") }
             },
             dismissButton = { TextButton(onClick = { confirmDedupe = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun DuplicateRow(item: SavedItem, keep: Boolean) {
+    val colour = if (keep) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+        Text(
+            if (keep) "KEEP" else "DELETE",
+            color = colour,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(52.dp).padding(top = 2.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                item.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (keep) FontWeight.Normal else FontWeight.Medium,
+            )
+            Text(
+                listOfNotNull(
+                    Formats.humanSize(item.sizeBytes),
+                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                        .format(Date(item.savedAt)),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Always the full path: two copies often differ only in folder.
+            Text(
+                item.fullPath,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
