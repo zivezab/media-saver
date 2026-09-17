@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.view.LayoutInflater
+import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -259,6 +260,33 @@ fun PlayerSheet(
                     // rather than keep showing the released one.
                     if (view.player !== player) view.player = player
                     if (playerView !== view) playerView = view
+
+                    // The buttons are hidden one by one, not as their shared
+                    // container: Media3's layout manager makes that container
+                    // visible again every time the controls animate in. Rewind
+                    // and forward have an API; play/pause only ever has its icon
+                    // changed, so hiding it directly sticks. The seek bar and
+                    // time are a separate bar and stay.
+                    val buttons = settings.playbackButtonsOnTap
+                    view.setShowRewindButton(buttons)
+                    view.setShowFastForwardButton(buttons)
+                    view.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
+                        ?.visibility = if (buttons) View.VISIBLE else View.GONE
+                    // Without the buttons a tap is the only way to pause. This
+                    // listener fires from PlayerView's own click, so taps on the
+                    // seek bar - which handles its own touches - do not reach it.
+                    view.setOnClickListener(
+                        if (buttons) null
+                        else View.OnClickListener {
+                            val p = view.player ?: return@OnClickListener
+                            if (p.playWhenReady && p.playbackState != Player.STATE_ENDED) {
+                                p.pause()
+                            } else {
+                                if (p.playbackState == Player.STATE_ENDED) p.seekToDefaultPosition()
+                                p.play()
+                            }
+                        }
+                    )
                     view.resizeMode =
                         if (cropToFill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         else AspectRatioFrameLayout.RESIZE_MODE_FIT
