@@ -293,8 +293,11 @@ object Extractor {
             title = post.title,
             uploader = post.author,
             durationSec = 0,
-            // A video URL is not an image, so a video-only post shows the icon.
-            thumbnail = items.firstOrNull { !it.isVideo }?.previewUrl,
+            // A video's own URL is not an image, so a video counts only when its
+            // extractor supplied a separate still (Threads does). A video-only
+            // post without one shows the icon.
+            thumbnail = items.firstOrNull { !it.isVideo }?.previewUrl
+                ?: items.firstOrNull { it.isVideo && it.previewUrl != it.url }?.previewUrl,
             source = if (items.size > 1) counts else if (first.isVideo) "Video" else "Photo",
             options = listOf(option),
             allFormats = emptyList(),
@@ -366,6 +369,11 @@ object Extractor {
             }
             t is GalleryDl.GalleryDlException && ("no results" in low || "no photos" in low) ->
                 "That post has no photos or videos to save."
+            // From Media Saver's own Threads extractor, which ships with the app
+            // rather than updating daily, so the generic advice below is wrong.
+            t is GalleryDl.GalleryDlException && "threads did not return" in low ->
+                "Threads did not share this post. It may be private, deleted, or only " +
+                    "visible when signed in to Threads."
             t is GalleryDl.GalleryDlException ->
                 "The photo extractor could not read that post (${msg.take(120)}). It " +
                     "updates itself daily, so this often clears up - try again later."

@@ -31,6 +31,8 @@ object GalleryDl {
     private const val TAG = "GalleryDl"
     private const val ASSET = "gallery-dl.pyz"
     private const val VERSION_ASSET = "gallery-dl.version"
+    /** Media Saver's own extractors for sites gallery-dl lacks (Threads). */
+    private const val EXTRACTORS = "extractors"
     private const val WHEEL = "gallery_dl-update.whl"
     private const val PREFS = "gallerydl"
     private const val KEY_INSTALLED = "installed_pyz_version"
@@ -112,6 +114,22 @@ object GalleryDl {
         return wheel.takeIf { it.isFile && isNewer(version, bundledVersion(context)) }
     }
 
+    /**
+     * The app's own extractor modules, copied out of the APK for gallery-dl's
+     * -X option. A file is rewritten whenever it differs from the bundled copy,
+     * so an app update's fix takes effect; they are a few KB, so comparing on
+     * every run costs nothing.
+     */
+    private fun extractorsDir(context: Context): File {
+        val dir = File(context.filesDir, EXTRACTORS).apply { mkdirs() }
+        context.assets.list(EXTRACTORS).orEmpty().filter { it.endsWith(".py") }.forEach { name ->
+            val bundled = context.assets.open("$EXTRACTORS/$name").use { it.readBytes() }
+            val target = File(dir, name)
+            if (!target.isFile || !target.readBytes().contentEquals(bundled)) target.writeBytes(bundled)
+        }
+        return dir
+    }
+
     fun installedVersion(context: Context): String {
         val wheelVersion = prefs(context).getString(KEY_WHEEL_VERSION, null)
         val bundled = bundledVersion(context)
@@ -130,7 +148,12 @@ object GalleryDl {
         check(pythonBin(context).isFile && usr.isDirectory) { "The Python runtime is not ready yet." }
 
         val builder = ProcessBuilder(
-            listOf(pythonBin(context).absolutePath, ensureInstalled(context).absolutePath) + args
+            listOf(
+                pythonBin(context).absolutePath,
+                ensureInstalled(context).absolutePath,
+                // Loaded alongside gallery-dl's own extractors, not instead of them.
+                "-X", extractorsDir(context).absolutePath,
+            ) + args
         ).directory(context.cacheDir)
 
         builder.environment().apply {
@@ -218,7 +241,10 @@ object GalleryDl {
                         height = fileMeta.optInt("height"),
                         position = photos.size + 1,
                         duration = fileMeta.optDouble("duration", 0.0).takeIf { !it.isNaN() } ?: 0.0,
-                        previewUrl = previewFor(mediaUrl),
+                        // An extractor can name a still to show for a video;
+                        // the media URL itself is only drawable for photos.
+                        previewUrl = fileMeta.optString("preview")
+                            .ifBlank { previewFor(mediaUrl) },
                     )
                 }
                 -1 -> failure = message.optJSONObject(1)?.optString("message")

@@ -43,6 +43,17 @@ try:
 except ImportError:  # pragma: no cover - guarded at startup
     yt_dlp = None
 
+# Media Saver's own extractors for sites yt-dlp lacks, shared with the Android
+# app (which loads the same files into gallery-dl).
+sys.path.insert(0, os.path.join(BASE_DIR, "..", "shared", "extractors"))
+import threads  # noqa: E402
+
+THREADS_URL = re.compile(threads.PATTERN)
+
+
+class FriendlyError(Exception):
+    """A message already written for people, passed through clean_error as is."""
+
 
 # --------------------------------------------------------------------------
 # helpers
@@ -145,6 +156,8 @@ def ydl_opts_base():
 
 def clean_error(exc):
     """Turn a yt-dlp exception into something a person can act on."""
+    if isinstance(exc, FriendlyError):
+        return str(exc)
     msg = re.sub(r"\x1b\[[0-9;]*m", "", str(exc))
     msg = re.sub(r"^ERROR:\s*", "", msg).strip()
     # yt-dlp appends long CLI hints and wiki links that mean nothing in a web UI.
@@ -401,7 +414,88 @@ def build_options(info, ffmpeg):
     return options, described
 
 
+def threads_page(url, agent):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": agent, "Accept-Language": "en-US,en;q=0.9"})
+    with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+def threads_post(url):
+    """(metadata, items) for a Threads link, or None when it is not one."""
+    match = THREADS_URL.match(url)
+    if not match:
+        return None
+    try:
+        return threads.extract(threads_page, *match.groups())
+    except LookupError as exc:
+        raise FriendlyError(str(exc))
+
+
+def threads_title(data):
+    # The caption's first line, minus links, which make poor file names.
+    for line in re.sub(r"https?://\S+", "", data.get("content") or "").splitlines():
+        line = re.sub(r"\s+", " ", line).strip()
+        if line:
+            return line[:80]
+    return "Threads post by @%s" % data.get("username") if data.get("username") else "Threads post"
+
+
+def probe_threads(url, data, items):
+    """yt-dlp has no Threads extractor, so these options are built by hand.
+
+    Each option's selector names items rather than a yt-dlp format ("threads:2",
+    "threads:all"); the job re-reads the post when it runs, because the media
+    URLs are signed and expire.
+    """
+    count = len(items)
+    videos = sum(1 for item in items if item["type"] == "video")
+    photos = count - videos
+    options = []
+    if count > 1:
+        parts = [p for p in ("%d photo%s" % (photos, "s" * (photos != 1)) if photos else "",
+                             "%d video%s" % (videos, "s" * (videos != 1)) if videos else "") if p]
+        options.append({
+            "selector": "threads:all",
+            "title": "Download all %d" % count,
+            "subtitle": " + ".join(parts) + " · one .zip",
+            "kind": "file",
+            "needs_ffmpeg": False,
+            "recommended": True,
+        })
+    for num, item in enumerate(items, 1):
+        noun = "video" if item["type"] == "video" else "photo"
+        dims = "%d×%d" % (item["width"], item["height"]) if item["width"] else ""
+        options.append({
+            "selector": "threads:%d" % num,
+            "title": ("Save " + noun) if count == 1 else "%s %d" % (noun.capitalize(), num),
+            "subtitle": " · ".join(x for x in (item["extension"].upper(), dims) if x),
+            "kind": "video" if item["type"] == "video" else "image",
+            "needs_ffmpeg": False,
+            "recommended": count == 1,
+        })
+
+    thumb = next((i["url"] for i in items if i["type"] == "image"), None) \
+        or next((i.get("preview") for i in items if i.get("preview")), None)
+    return {
+        "type": "single",
+        "title": threads_title(data),
+        "uploader": "@" + data["username"] if data.get("username") else "",
+        "duration": None,
+        "thumbnail": thumb,
+        "webpage_url": url,
+        "source": "Threads",
+        "options": options,
+        "formats": [],
+        "ffmpeg": has_ffmpeg(),
+    }
+
+
 def probe(url):
+    post = threads_post(url)
+    if post is not None:
+        return probe_threads(url, *post)
+
     opts = ydl_opts_base()
     opts["extract_flat"] = "in_playlist"
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -539,7 +633,86 @@ def format_selector(selector, kind, ffmpeg):
     return selector + "/best"
 
 
+def fetch_to(job, url, path, index, count):
+    """Stream one file, reporting progress as part index of count."""
+    req = urllib.request.Request(url, headers=ydl_opts_base()["http_headers"])
+    started = time.time()
+    with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT) as resp, open(path, "wb") as out:
+        total = int(resp.headers.get("Content-Length") or 0) or None
+        done = 0
+        while True:
+            if job.cancel.is_set():
+                raise RuntimeError("cancelled")
+            chunk = resp.read(256 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+            done += len(chunk)
+            job.downloaded, job.total = done, total
+            job.speed = done / max(time.time() - started, 0.001)
+            job.eta = (total - done) / job.speed if total and job.speed else None
+            if total:
+                job.progress = min(0.99, (index + done / float(total)) / count)
+
+
+def finish_files(job, produced):
+    """Hand one file over as is, or several as a zip."""
+    if len(produced) > 1:
+        archive = os.path.join(WORK_DIR, job.id + "_bundle")
+        shutil.make_archive(archive, "zip", job.dir)
+        job.path = archive + ".zip"
+        job.filename = safe_filename(job.title) + ".zip"
+    else:
+        job.path = produced[0]
+        ext = os.path.splitext(job.path)[1] or ""
+        job.filename = safe_filename(job.title) + ext
+    job.total = os.path.getsize(job.path)
+    job.downloaded = job.total
+    job.progress = 1.0
+    job.status = "ready"
+
+
+def run_threads_job(job):
+    os.makedirs(job.dir, exist_ok=True)
+    try:
+        data, items = threads_post(job.url)
+        pick = job.selector.split(":", 1)[1]
+        if pick == "all":
+            chosen = list(enumerate(items, 1))
+        else:
+            num = int(pick)
+            if not 1 <= num <= len(items):
+                raise FriendlyError("That item is no longer in the post. Look the link up again.")
+            chosen = [(num, items[num - 1])]
+        job.title = threads_title(data)
+        job.status = "running"
+
+        produced = []
+        for index, (num, item) in enumerate(chosen):
+            stem = safe_filename(job.title) + (" %d" % num if len(items) > 1 else "")
+            path = os.path.join(job.dir, "%s.%s" % (stem, item["extension"]))
+            fetch_to(job, item["url"], path, index, len(chosen))
+            produced.append(path)
+        if job.cancel.is_set():
+            job.status = "cancelled"
+            return
+        finish_files(job, produced)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the client
+        if job.cancel.is_set():
+            job.status = "cancelled"
+        else:
+            job.status = "error"
+            job.error = clean_error(exc)
+        shutil.rmtree(job.dir, ignore_errors=True)
+    finally:
+        job.finished = time.time()
+        reap_jobs()
+
+
 def run_job(job):
+    if job.selector.startswith("threads:"):
+        return run_threads_job(job)
+
     os.makedirs(job.dir, exist_ok=True)
     ffmpeg = has_ffmpeg()
 
@@ -604,21 +777,7 @@ def run_job(job):
                 produced.append(os.path.join(root, name))
         if not produced:
             raise RuntimeError("Nothing was downloaded.")
-
-        if len(produced) > 1:
-            archive = os.path.join(WORK_DIR, job.id + "_bundle")
-            shutil.make_archive(archive, "zip", job.dir)
-            job.path = archive + ".zip"
-            job.filename = safe_filename(job.title) + ".zip"
-        else:
-            job.path = produced[0]
-            ext = os.path.splitext(job.path)[1] or ""
-            job.filename = safe_filename(job.title) + ext
-
-        job.total = os.path.getsize(job.path)
-        job.downloaded = job.total
-        job.progress = 1.0
-        job.status = "ready"
+        finish_files(job, produced)
     except Exception as exc:  # noqa: BLE001 - surfaced to the client
         if job.cancel.is_set():
             job.status = "cancelled"

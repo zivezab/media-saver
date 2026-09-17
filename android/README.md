@@ -193,6 +193,30 @@ On X, gallery-dl picks the same video stream as yt-dlp's best (720x1280 at
 2176k on the post tested), with its audio, so taking videos this way loses
 nothing.
 
+## Threads
+
+Neither yt-dlp nor gallery-dl has a Threads extractor (as of yt-dlp 2026.08.19
+and gallery-dl 1.32.12), so the app ships its own:
+[`shared/extractors/threads.py`](../shared/extractors/threads.py), packed in as
+`assets/extractors/` by `build.gradle.kts`. It is copied to app storage and
+handed to gallery-dl with `-X`, which loads it alongside the built-in extractors,
+so Threads posts go through the same picker, downloads and error handling as
+every other gallery site. The web server imports the same file.
+
+- **Where the media comes from.** A post page embeds the post as JSON in
+  Instagram's media format, but only for some clients, and which ones changed
+  within an hour of testing: a curl user agent worked and then stopped, while
+  Googlebot's kept working. The extractor tries a short list of agents in turn.
+- **No preview-image fallback.** When no agent gets the JSON, the post fails with
+  a message rather than saving the page's `og:image`. On a text post that image
+  is the author's profile picture and on a video post a still frame, and the
+  page does not say which kind of post it is.
+- **Video thumbnails.** An extractor may add a `preview` field naming a still
+  image for a video; the app shows that instead of the placeholder icon. The
+  Threads extractor passes each video's cover image.
+- **Public posts only.** Nothing signs in to Threads, so a post that needs an
+  account fails with a message saying so.
+
 ## Downloading in the background
 
 With auto-download on, a shared link is handed to the foreground service the
