@@ -182,37 +182,74 @@ if [ "$REINSTALL" = 1 ]; then
   "${ADBS[@]}" uninstall "$PACKAGE" >/dev/null 2>&1 || true
 fi
 
-step "Installing (this takes a moment; the APK is large)"
-set +e
-output="$("${ADBS[@]}" install -r "$APK" 2>&1)"
-status=$?
-set -e
-printf '%s\n' "$output"
+# Wait up to ~20s for the phone to be reachable again. A USB hiccup - the cable
+# moving, the phone switching USB mode, the screen locking - drops adb for a
+# moment, and anything run during it fails with no reason given.
+wait_for_phone() {
+  local i
+  for i in $(seq 1 20); do
+    [ "$("${ADBS[@]}" get-state 2>/dev/null)" = "device" ] && return 0
+    sleep 1
+  done
+  return 1
+}
 
-if [ $status -ne 0 ] || printf '%s' "$output" | grep -q "Failure"; then
+try_install() {
+  set +e
+  output="$("${ADBS[@]}" install -r "$APK" 2>&1)"
+  status=$?
+  set -e
+  printf '%s\n' "$output"
+  [ $status -eq 0 ] && ! printf '%s' "$output" | grep -q "Failure"
+}
+
+step "Installing (this takes a moment; the APK is large)"
+if ! try_install; then
+  # No "Failure [REASON]" means adb lost the phone rather than the phone saying
+  # no, so it is worth one more go once the connection is back.
+  if ! printf '%s' "$output" | grep -q "INSTALL_FAILED\|Failure \["; then
+    say ""
+    say "The install failed without a reason, which usually means the USB"
+    say "connection dropped for a moment. Retrying..."
+    wait_for_phone || die "Lost the phone. Check the cable, unlock the phone, and run this again."
+    try_install && installed=1
+  fi
+fi
+
+if [ "${installed:-0}" != 1 ] && { [ $status -ne 0 ] || printf '%s' "$output" | grep -q "Failure"; }; then
   case "$output" in
     *INSTALL_FAILED_UPDATE_INCOMPATIBLE*|*INSTALL_FAILED_VERSION_DOWNGRADE*)
       die "A different build of $PACKAGE is already installed.
 Run './install.sh --reinstall' to replace it." ;;
     *INSTALL_FAILED_INSUFFICIENT_STORAGE*)
       die "Not enough free space on the phone. The app needs roughly 300 MB installed." ;;
+    *INSTALL_FAILED_USER_RESTRICTED*|*INSTALL_FAILED_ABORTED*)
+      say ""
+      say "The phone refused the install over USB."
+      say ""
+      say "On Xiaomi/Redmi/POCO (and some Oppo, Vivo, Realme) phones this is a vendor"
+      say "restriction rather than a problem with the app. To allow it, in Developer"
+      say "options turn on both:"
+      say "  - Install via USB"
+      say "  - USB debugging (Security settings)"
+      say "Both usually require being signed into a Mi account, and the phone may need"
+      say "mobile data switched on before the toggles will stick. Watch the phone's"
+      say "screen while installing too - it often shows a confirmation prompt that"
+      say "times out on its own."
+      ;;
+    *)
+      say ""
+      say "The install did not go through (see adb's message above)."
+      ;;
   esac
 
-  say ""
-  say "The phone refused the install over USB."
-  say ""
-  say "On Xiaomi/Redmi/POCO (and some Oppo, Vivo, Realme) phones this is a vendor"
-  say "restriction rather than a problem with the app. To allow it, in Developer"
-  say "options turn on both:"
-  say "  - Install via USB"
-  say "  - USB debugging (Security settings)"
-  say "Both usually require being signed into a Mi account, and the phone may need"
-  say "mobile data switched on before the toggles will stick. Watch the phone's"
-  say "screen while installing too - it often shows a confirmation prompt that"
-  say "times out on its own."
-
   step "Copying the APK onto the phone instead"
-  if "${ADBS[@]}" push "$APK" /sdcard/Download/media-saver.apk >/dev/null 2>&1; then
+  wait_for_phone || die "Lost the phone. Check the cable, unlock the phone, and run this again."
+  set +e
+  push_output="$("${ADBS[@]}" push "$APK" /sdcard/Download/media-saver.apk 2>&1)"
+  push_status=$?
+  set -e
+  if [ $push_status -eq 0 ]; then
     say "Copied to Downloads as media-saver.apk"
     say ""
     say "Finish on the phone:"
@@ -227,8 +264,9 @@ Run './install.sh --reinstall' to replace it." ;;
     exit 0
   fi
 
-  die "Could not copy the APK to the phone either. Enable 'Install via USB' in
-Developer options and run this again."
+  printf '%s\n' "$push_output" | tail -3
+  die "Could not copy the APK to the phone either, so the USB connection itself
+is failing. Try another cable or port, keep the phone unlocked, and run this again."
 fi
 
 step "Starting the app"
