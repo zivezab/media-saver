@@ -127,6 +127,8 @@ fun SaverScreen(viewModel: MainViewModel) {
                 }
                 if (settings.sortDescending) sorted.reversed() else sorted
             }
+            // Grouped by site when that is on, exactly as the cards are laid out.
+            .let { libraryOrder(it, settings) }
     }
     val duplicateGroups = remember(saved) { DownloadHistory.duplicateGroups(saved) }
     val duplicateCount = duplicateGroups.sumOf { it.size - 1 }
