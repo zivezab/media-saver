@@ -35,6 +35,11 @@ object Settings {
          * leaves only the seek bar, and a tap pauses or resumes instead.
          */
         val playbackButtonsOnTap: Boolean = true,
+        /**
+         * Keep the playback time on screen, and drop the gray tint Media3 lays
+         * over the picture whenever its controls appear.
+         */
+        val alwaysShowTime: Boolean = false,
     )
 
     private const val PREFS = "settings"
@@ -61,6 +66,7 @@ object Settings {
             loopPlayback = p.getBoolean("loopPlayback", false),
             pauseOnLeave = p.getBoolean("pauseOnLeave", true),
             playbackButtonsOnTap = p.getBoolean("playbackButtonsOnTap", true),
+            alwaysShowTime = p.getBoolean("alwaysShowTime", false),
         )
     }
 
@@ -84,6 +90,7 @@ object Settings {
             .putBoolean("loopPlayback", next.loopPlayback)
             .putBoolean("pauseOnLeave", next.pauseOnLeave)
             .putBoolean("playbackButtonsOnTap", next.playbackButtonsOnTap)
+            .putBoolean("alwaysShowTime", next.alwaysShowTime)
             .apply()
     }
 

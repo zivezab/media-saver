@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -34,6 +35,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -54,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -61,6 +65,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 /**
@@ -122,6 +127,21 @@ fun PlayerSheet(
                         "Try opening it in another app."
                 }
             })
+        }
+    }
+
+    // The always-on time. Polled rather than pushed: ExoPlayer reports position
+    // only when asked, and four reads a second keeps the seconds honest.
+    var positionMs by remember(item.uri) { mutableLongStateOf(0L) }
+    var durationMs by remember(item.uri) { mutableLongStateOf(0L) }
+    // The control bar has its own time; showing both at once would double up.
+    var controlsShown by remember { mutableStateOf(false) }
+    LaunchedEffect(player, settings.alwaysShowTime) {
+        if (!settings.alwaysShowTime) return@LaunchedEffect
+        while (true) {
+            positionMs = player.currentPosition
+            durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+            delay(250)
         }
     }
 
@@ -251,6 +271,11 @@ fun PlayerSheet(
                         this.player = player
                         setShowNextButton(false)
                         setShowPreviousButton(false)
+                        setControllerVisibilityListener(
+                            PlayerView.ControllerVisibilityListener { visibility ->
+                                controlsShown = visibility == View.VISIBLE
+                            }
+                        )
                         playerView = this
                     }
                 },
@@ -272,6 +297,14 @@ fun PlayerSheet(
                     view.setShowFastForwardButton(buttons)
                     view.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
                         ?.visibility = if (buttons) View.VISIBLE else View.GONE
+                    // Media3 only ever positions this tint, never recolours it,
+                    // so clearing its background here sticks.
+                    view.findViewById<View>(androidx.media3.ui.R.id.exo_controls_background)
+                        ?.setBackgroundColor(
+                            if (settings.alwaysShowTime) android.graphics.Color.TRANSPARENT
+                            else SCRIM
+                        )
+
                     // Without the buttons a tap is the only way to pause. This
                     // listener fires from PlayerView's own click, so taps on the
                     // seek bar - which handles its own touches - do not reach it.
@@ -306,6 +339,22 @@ fun PlayerSheet(
                         .background(Color(0xAA000000))
                         .clickable { resetZoom() }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+
+            if (settings.alwaysShowTime && !controlsShown && error == null) {
+                // Plain shadowed text rather than a bar: nothing gray over the
+                // picture is the point of the setting.
+                Text(
+                    "${formatTime(positionMs)} / ${formatTime(durationMs)}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        shadow = Shadow(Color.Black, Offset(0f, 1f), blurRadius = 6f),
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 16.dp),
                 )
             }
 
@@ -401,4 +450,16 @@ fun PlayerSheet(
             }
         }
     }
+}
+
+/** Media3's own tint, restored when the always-show-time setting is off. */
+private const val SCRIM = 0x98000000.toInt()
+
+/** 00:07, 12:34, 1:02:03 - the same style as the control bar's own time. */
+private fun formatTime(ms: Long): String {
+    val total = (ms.coerceAtLeast(0L) / 1000)
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }

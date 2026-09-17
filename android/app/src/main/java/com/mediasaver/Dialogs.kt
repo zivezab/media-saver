@@ -92,6 +92,15 @@ fun SettingsDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                SwitchRow("Always show the time", settings.alwaysShowTime) { v ->
+                    onChange { it.copy(alwaysShowTime = v) }
+                }
+                Text(
+                    "Keeps the playback time at the bottom of the video, and removes " +
+                        "the gray tint over the picture when the controls appear.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 SectionLabel("Library")
                 ChipRow(
