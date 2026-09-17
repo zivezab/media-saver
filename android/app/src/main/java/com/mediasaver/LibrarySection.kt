@@ -132,17 +132,7 @@ fun LazyListScope.librarySection(
     }
 
     if (settings.groupByDomain) {
-        val grouped = entries.groupBy { it.sourceDomain.ifBlank { "Other" } }.toList()
-        val groups = if (settings.sortBy == Settings.SortBy.DATE) {
-            // Alphabetical group order would bury the newest download under
-            // whichever site happens to sort first, which defeats sorting by
-            // date entirely.
-            val byRecency = grouped.sortedBy { (_, items) -> items.maxOf { it.savedAt } }
-            if (settings.sortDescending) byRecency.reversed() else byRecency
-        } else {
-            grouped.sortedBy { it.first.lowercase() }
-        }
-        groups.forEach { (domain, groupItems) ->
+        libraryGroups(entries, settings).forEach { (domain, groupItems) ->
             item(key = "group-$domain") {
                 Text(
                     "$domain  ·  ${groupItems.size}",
@@ -157,6 +147,28 @@ fun LazyListScope.librarySection(
         emitItems(entries, settings, "all", onPlay, onShare, onDelete)
     }
 }
+
+/**
+ * The library as it appears on screen: grouped by site when that setting is on.
+ * The viewer walks this same order, so swiping always lands on the card that
+ * sits next to the one tapped rather than skipping between groups.
+ */
+fun libraryGroups(entries: List<SavedItem>, settings: Settings.State): List<Pair<String, List<SavedItem>>> {
+    if (!settings.groupByDomain) return listOf("all" to entries)
+    val grouped = entries.groupBy { it.sourceDomain.ifBlank { "Other" } }.toList()
+    return if (settings.sortBy == Settings.SortBy.DATE) {
+        // Alphabetical group order would bury the newest download under
+        // whichever site happens to sort first, which defeats sorting by
+        // date entirely.
+        val byRecency = grouped.sortedBy { (_, items) -> items.maxOf { it.savedAt } }
+        if (settings.sortDescending) byRecency.reversed() else byRecency
+    } else {
+        grouped.sortedBy { it.first.lowercase() }
+    }
+}
+
+fun libraryOrder(entries: List<SavedItem>, settings: Settings.State): List<SavedItem> =
+    libraryGroups(entries, settings).flatMap { it.second }
 
 private fun LazyListScope.emitItems(
     entries: List<SavedItem>,
