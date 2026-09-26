@@ -302,7 +302,13 @@ survives restarts.
 | Thumbnails | Tap one to open it. A play badge marks video, an expand badge a photo |
 | Playback | In-app, via ExoPlayer - no app switch. Carries on in the background |
 | Grouping | Folded by site: tap a header to fold or unfold it, remembered across restarts |
+| Favourites | The star on a card pins it to a Favourites section above the site groups |
 | Duplicates | Detected on size plus name; one button removes all but the newest of each, after confirming |
+
+Favourites are a section, not a badge: a starred item leaves its site's group
+and moves to **Favourites** at the top, because one item appearing in two places
+reads as a duplicate. The section folds like any other, and the viewer swipes
+through it first, in the order the cards are laid out.
 
 Duplicates are matched on size and name rather than by hashing, deliberately:
 these files run to hundreds of megabytes, and re-reading each one to compare

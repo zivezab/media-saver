@@ -408,6 +408,7 @@ fun SaverScreen(viewModel: MainViewModel) {
                         else it.copy(sortBy = choice)
                     }
                 },
+                onToggleFavorite = { DownloadHistory.toggleFavorite(context, it.id) },
                 onToggleGroup = { domain ->
                     Settings.update(context) {
                         val next = it.collapsedDomains.toMutableSet()

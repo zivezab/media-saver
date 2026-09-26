@@ -18,6 +18,8 @@ data class SavedItem(
     val savedAt: Long,
     /** Host the media came from, used to group the library. */
     val sourceDomain: String = "",
+    /** Pinned to the Favourites section at the top of the library. */
+    val favorite: Boolean = false,
 ) {
     val isVideo get() = mimeType.startsWith("video/")
     val isAudio get() = mimeType.startsWith("audio/")
@@ -52,6 +54,15 @@ object DownloadHistory {
 
     fun add(context: Context, item: SavedItem) {
         val next = (listOf(item) + _items.value.filter { it.uri != item.uri }).take(LIMIT)
+        _items.value = next
+        persist(context, next)
+    }
+
+    /** Pin an item to the top of the library, or unpin it. */
+    fun toggleFavorite(context: Context, id: String) {
+        val next = _items.value.map {
+            if (it.id == id) it.copy(favorite = !it.favorite) else it
+        }
         _items.value = next
         persist(context, next)
     }
@@ -146,6 +157,7 @@ object DownloadHistory {
                     put("sizeBytes", item.sizeBytes)
                     put("savedAt", item.savedAt)
                     put("sourceDomain", item.sourceDomain)
+                    put("favorite", item.favorite)
                 }
             )
         }
@@ -167,6 +179,7 @@ object DownloadHistory {
                 sizeBytes = o.optLong("sizeBytes", 0L),
                 savedAt = o.optLong("savedAt", 0L),
                 sourceDomain = o.optString("sourceDomain"),
+                favorite = o.optBoolean("favorite", false),
             )
         }
     }

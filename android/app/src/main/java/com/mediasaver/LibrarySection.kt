@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.Card
@@ -63,6 +65,7 @@ fun LazyListScope.librarySection(
     onPlay: (SavedItem) -> Unit,
     onShare: (SavedItem) -> Unit,
     onDelete: (SavedItem) -> Unit,
+    onToggleFavorite: (SavedItem) -> Unit,
 ) {
     if (entries.isEmpty() && query.isBlank()) return
 
@@ -134,34 +137,38 @@ fun LazyListScope.librarySection(
         return
     }
 
-    if (settings.groupByDomain) {
-        libraryGroups(entries, settings).forEach { (domain, groupItems) ->
-            val folded = isFolded(domain, settings, query)
-            item(key = "group-$domain") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onToggleGroup(domain) }
-                        .padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        if (folded) Icons.Filled.ChevronRight else Icons.Filled.ExpandMore,
-                        contentDescription = if (folded) "Unfold $domain" else "Fold $domain",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Text(
-                        "$domain  ·  ${groupItems.size}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            if (!folded) emitItems(groupItems, settings, domain, onPlay, onShare, onDelete)
+    libraryGroups(entries, settings).forEach { (group, groupItems) ->
+        // UNGROUPED is the whole library in one lump; it gets no header, and
+        // nothing to fold.
+        if (group == UNGROUPED) {
+            emitItems(groupItems, settings, group, onPlay, onShare, onDelete, onToggleFavorite)
+            return@forEach
         }
-    } else {
-        emitItems(entries, settings, "all", onPlay, onShare, onDelete)
+        val folded = isFolded(group, settings, query)
+        item(key = "group-$group") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleGroup(group) }
+                    .padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (folded) Icons.Filled.ChevronRight else Icons.Filled.ExpandMore,
+                    contentDescription = if (folded) "Unfold $group" else "Fold $group",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    "$group  ·  ${groupItems.size}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (!folded) {
+            emitItems(groupItems, settings, group, onPlay, onShare, onDelete, onToggleFavorite)
+        }
     }
 }
 
@@ -169,11 +176,15 @@ fun LazyListScope.librarySection(
  * A folded group shows only its header. A search unfolds everything: hiding
  * matches inside a folded group would look like the search had missed them.
  */
-fun isFolded(domain: String, settings: Settings.State, query: String): Boolean =
-    settings.groupByDomain && query.isBlank() && domain in settings.collapsedDomains
+fun isFolded(group: String, settings: Settings.State, query: String): Boolean =
+    group != UNGROUPED && query.isBlank() && group in settings.collapsedDomains
 
 /** The group an item is filed under, matching [libraryGroups]. */
-fun domainOf(item: SavedItem): String = item.sourceDomain.ifBlank { "Other" }
+fun groupOf(item: SavedItem, settings: Settings.State): String = when {
+    item.favorite -> FAVOURITES
+    settings.groupByDomain -> item.sourceDomain.ifBlank { "Other" }
+    else -> UNGROUPED
+}
 
 /**
  * The library as it appears on screen: grouped by site when that setting is on.
@@ -181,7 +192,20 @@ fun domainOf(item: SavedItem): String = item.sourceDomain.ifBlank { "Other" }
  * sits next to the one tapped rather than skipping between groups.
  */
 fun libraryGroups(entries: List<SavedItem>, settings: Settings.State): List<Pair<String, List<SavedItem>>> {
-    if (!settings.groupByDomain) return listOf("all" to entries)
+    // Favourites are pinned to the top in their own section, and left out of
+    // their site's group: one item in two places reads as a duplicate.
+    val favourites = entries.filter { it.favorite }
+    val rest = entries.filterNot { it.favorite }
+    val head = if (favourites.isEmpty()) emptyList() else listOf(FAVOURITES to favourites)
+    return head + siteGroups(rest, settings)
+}
+
+private fun siteGroups(
+    entries: List<SavedItem>,
+    settings: Settings.State,
+): List<Pair<String, List<SavedItem>>> {
+    if (entries.isEmpty()) return emptyList()
+    if (!settings.groupByDomain) return listOf(UNGROUPED to entries)
     val grouped = entries.groupBy { it.sourceDomain.ifBlank { "Other" } }.toList()
     return if (settings.sortBy == Settings.SortBy.DATE) {
         // Alphabetical group order would bury the newest download under
@@ -207,7 +231,11 @@ fun onScreenOrder(
     settings: Settings.State,
     query: String,
 ): List<SavedItem> =
-    libraryOrder(entries, settings).filterNot { isFolded(domainOf(it), settings, query) }
+    libraryOrder(entries, settings).filterNot { isFolded(groupOf(it, settings), settings, query) }
+
+/** The pinned section's name, and the name for "not grouped at all". */
+const val FAVOURITES = "Favourites"
+const val UNGROUPED = "all"
 
 private fun LazyListScope.emitItems(
     entries: List<SavedItem>,
@@ -216,6 +244,7 @@ private fun LazyListScope.emitItems(
     onPlay: (SavedItem) -> Unit,
     onShare: (SavedItem) -> Unit,
     onDelete: (SavedItem) -> Unit,
+    onToggleFavorite: (SavedItem) -> Unit,
 ) {
     if (settings.layout == Settings.Layout.GRID) {
         // The whole screen is one lazy list, which cannot nest a lazy grid, so
@@ -225,7 +254,7 @@ private fun LazyListScope.emitItems(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { entry ->
                         Column(Modifier.weight(1f)) {
-                            GridCard(entry, settings, onPlay, onShare, onDelete)
+                            GridCard(entry, settings, onPlay, onShare, onDelete, onToggleFavorite)
                         }
                     }
                     if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -234,7 +263,7 @@ private fun LazyListScope.emitItems(
         }
     } else {
         items(entries, key = { "$keyPrefix-${it.id}" }) { entry ->
-            ListCard(entry, settings, onPlay, onShare, onDelete)
+            ListCard(entry, settings, onPlay, onShare, onDelete, onToggleFavorite)
         }
     }
 }
@@ -272,6 +301,7 @@ private fun ListCard(
     onPlay: (SavedItem) -> Unit,
     onShare: (SavedItem) -> Unit,
     onDelete: (SavedItem) -> Unit,
+    onToggleFavorite: (SavedItem) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
@@ -301,6 +331,7 @@ private fun ListCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                FavoriteButton(item, onToggleFavorite)
                 IconButton(onClick = { onDelete(item) }) {
                     Icon(
                         Icons.Filled.Delete,
@@ -333,6 +364,7 @@ private fun GridCard(
     onPlay: (SavedItem) -> Unit,
     onShare: (SavedItem) -> Unit,
     onDelete: (SavedItem) -> Unit,
+    onToggleFavorite: (SavedItem) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -370,6 +402,7 @@ private fun GridCard(
                     IconButton(onClick = { onShare(item) }) {
                         Icon(Icons.Filled.Share, contentDescription = "Share")
                     }
+                    FavoriteButton(item, onToggleFavorite)
                     IconButton(onClick = { onDelete(item) }) {
                         Icon(
                             Icons.Filled.Delete,
@@ -391,4 +424,17 @@ private fun subtitleFor(item: SavedItem, settings: Settings.State): String {
         if (settings.showFullPath) item.fullPath else item.location,
     )
     return bits.joinToString(" · ")
+}
+
+/** Pins an item to the Favourites section, or takes it back out. */
+@Composable
+private fun FavoriteButton(item: SavedItem, onToggle: (SavedItem) -> Unit) {
+    IconButton(onClick = { onToggle(item) }) {
+        Icon(
+            if (item.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+            contentDescription = if (item.favorite) "Remove from favourites" else "Add to favourites",
+            tint = if (item.favorite) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
