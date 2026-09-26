@@ -45,6 +45,11 @@ class PlaybackService : MediaSessionService() {
             )
             // Unplugging headphones pauses, instead of surprising the room.
             .setHandleAudioBecomingNoisy(true)
+            // Previous always means the previous item. ExoPlayer otherwise
+            // restarts the current one once it is more than 3 seconds in, which
+            // is the music-app convention but reads as a broken button when the
+            // list is videos you are stepping through.
+            .setMaxSeekToPreviousPositionMs(Long.MAX_VALUE)
             .build()
 
         session = MediaSession.Builder(this, player)
