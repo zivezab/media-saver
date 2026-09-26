@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayArrow
@@ -57,6 +59,7 @@ fun LazyListScope.librarySection(
     onDedupe: () -> Unit,
     onSort: (Settings.SortBy) -> Unit,
     onToggleLayout: () -> Unit,
+    onToggleGroup: (String) -> Unit,
     onPlay: (SavedItem) -> Unit,
     onShare: (SavedItem) -> Unit,
     onDelete: (SavedItem) -> Unit,
@@ -133,20 +136,44 @@ fun LazyListScope.librarySection(
 
     if (settings.groupByDomain) {
         libraryGroups(entries, settings).forEach { (domain, groupItems) ->
+            val folded = isFolded(domain, settings, query)
             item(key = "group-$domain") {
-                Text(
-                    "$domain  ·  ${groupItems.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onToggleGroup(domain) }
+                        .padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (folded) Icons.Filled.ChevronRight else Icons.Filled.ExpandMore,
+                        contentDescription = if (folded) "Unfold $domain" else "Fold $domain",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        "$domain  ·  ${groupItems.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
-            emitItems(groupItems, settings, domain, onPlay, onShare, onDelete)
+            if (!folded) emitItems(groupItems, settings, domain, onPlay, onShare, onDelete)
         }
     } else {
         emitItems(entries, settings, "all", onPlay, onShare, onDelete)
     }
 }
+
+/**
+ * A folded group shows only its header. A search unfolds everything: hiding
+ * matches inside a folded group would look like the search had missed them.
+ */
+fun isFolded(domain: String, settings: Settings.State, query: String): Boolean =
+    settings.groupByDomain && query.isBlank() && domain in settings.collapsedDomains
+
+/** The group an item is filed under, matching [libraryGroups]. */
+fun domainOf(item: SavedItem): String = item.sourceDomain.ifBlank { "Other" }
 
 /**
  * The library as it appears on screen: grouped by site when that setting is on.
@@ -167,8 +194,20 @@ fun libraryGroups(entries: List<SavedItem>, settings: Settings.State): List<Pair
     }
 }
 
+/** Every item, in the order the cards are laid out. */
 fun libraryOrder(entries: List<SavedItem>, settings: Settings.State): List<SavedItem> =
     libraryGroups(entries, settings).flatMap { it.second }
+
+/**
+ * The items actually on screen - a folded group shows only its header, so the
+ * viewer does not swipe through what it hides.
+ */
+fun onScreenOrder(
+    entries: List<SavedItem>,
+    settings: Settings.State,
+    query: String,
+): List<SavedItem> =
+    libraryOrder(entries, settings).filterNot { isFolded(domainOf(it), settings, query) }
 
 private fun LazyListScope.emitItems(
     entries: List<SavedItem>,

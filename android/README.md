@@ -300,7 +300,8 @@ survives restarts.
 | Thumbnails | Real poster frames, from MediaStore. Can be turned off |
 | Per item | Play, Share, and Delete with confirmation - Delete removes the file, not just the row |
 | Thumbnails | Tap one to open it. A play badge marks video, an expand badge a photo |
-| Playback | In-app, via ExoPlayer - no app switch |
+| Playback | In-app, via ExoPlayer - no app switch. Carries on in the background |
+| Grouping | Folded by site: tap a header to fold or unfold it, remembered across restarts |
 | Duplicates | Detected on size plus name; one button removes all but the newest of each, after confirming |
 
 Duplicates are matched on size and name rather than by hashing, deliberately:
@@ -314,6 +315,29 @@ same format of the same video have identical byte lengths.
 skip back 5 / forward 15, track and speed options, and a rotate button.
 Tapping the "Saved - tap to play" notification lands in the same player rather
 than handing the file to another app.
+
+### In the background, and in the notification shade
+
+The player lives in `PlaybackService`, a `MediaSessionService`, not in the
+Activity. Playing from the Activity was fine while the app was in front, but
+Android promises a backgrounded process nothing, and there was nowhere to press
+pause without coming back to the app. A media session fixes both: the system
+keeps the service alive while it is playing, and the session is what draws the
+controls in the shade, on the lock screen, and on a watch or in a car.
+
+- **The queue is what the viewer is showing**, so next and previous in the shade
+  walk the same list as a swipe, and the screen follows whichever was used - a
+  `Player.Listener` moves the viewer when the notification changes the track.
+  Photos are left out of the queue, since the player cannot take them.
+- **Stop** is a custom command added to the session: play/pause, next and
+  previous come as standard, stopping does not.
+- **Leaving the app** keeps playing unless "Keep playing in the background" is
+  off, which is the old "Pause when leaving the app" switch inverted, and its
+  stored value is carried over.
+- **Closing the viewer stops playback**, as does opening the file in another
+  app. With no screen there is nothing to say what is playing but the
+  notification, and two players at once helps nobody. Swiping to a photo is not
+  closing, so music carries on under it.
 
 Looping is applied as an effect rather than at construction, so toggling the
 setting takes hold on a video that is already playing.
@@ -342,9 +366,11 @@ ExoPlayer will not decode everything a phone's stock player might, and 2160p
 and 1440p from YouTube are VP9 remuxed into MP4. When playback fails, the
 player says so and points at that button rather than showing a black screen.
 
-Closing the player releases it. An ExoPlayer left alive holds a hardware codec
-and keeps audio focus, which is exactly the kind of thing that goes unnoticed
-until the phone stops playing anything else.
+The service releases the player when it is destroyed. A player left alive holds
+a hardware codec and keeps audio focus, which is exactly the kind of thing that
+goes unnoticed until the phone stops playing anything else. Audio focus is taken
+properly, so a call pauses playback, and unplugging headphones pauses rather
+than surprising the room.
 
 ## Settings
 

@@ -3,6 +3,7 @@ package com.mediasaver
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.net.Uri
+import android.content.ComponentName
 import android.view.LayoutInflater
 import android.view.View
 import androidx.activity.compose.BackHandler
@@ -55,12 +56,15 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -78,16 +82,19 @@ import kotlin.math.abs
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun PlayerSheet(
-    item: SavedItem,
-    /** Where this sits in the list being viewed, for the "3 of 12" counter. */
-    position: Int = 1,
-    total: Int = 1,
-    /** Null at the ends of the list. */
-    onNext: (() -> Unit)? = null,
-    onPrevious: (() -> Unit)? = null,
+    /** Everything the viewer was opened on, so the player can walk it too. */
+    queue: List<SavedItem>,
+    index: Int,
+    onIndexChange: (Int) -> Unit,
     onOpenExternally: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val item = queue.getOrNull(index) ?: return
+    val position = index + 1
+    val total = queue.size
+    val onNext = if (index < queue.lastIndex) ({ onIndexChange(index + 1) }) else null
+    val onPrevious = if (index > 0) ({ onIndexChange(index - 1) }) else null
+
     val context = LocalContext.current
     val view = LocalView.current
     val settings by Settings.state.collectAsState()
@@ -116,18 +123,63 @@ fun PlayerSheet(
         offset = Offset.Zero
     }
 
-    val player = remember(item.uri) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(item.uri)))
-            prepare()
-            playWhenReady = true
-            addListener(object : Player.Listener {
-                override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
-                    error = "This file cannot be played here (${e.errorCodeName}). " +
-                        "Try opening it in another app."
-                }
-            })
+    // The player lives in PlaybackService rather than here, so playback and its
+    // notification survive this screen going away - see PlaybackService.
+    var player by remember { mutableStateOf<MediaController?>(null) }
+    DisposableEffect(Unit) {
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val pending = MediaController.Builder(context, token).buildAsync()
+        pending.addListener(
+            { player = runCatching { pending.get() }.getOrNull() },
+            ContextCompat.getMainExecutor(context),
+        )
+        onDispose {
+            // Only this connection goes; whatever is playing carries on, which
+            // is what makes a swipe to a photo - or to another app - harmless.
+            player = null
+            MediaController.releaseFuture(pending)
         }
+    }
+
+    // Photos cannot be handed to the player, so the queue it gets is the
+    // playable part of what the viewer is showing.
+    val playable = remember(queue) { queue.filterNot { it.isImage } }
+
+    LaunchedEffect(player, playable, item.uri) {
+        val controller = player ?: return@LaunchedEffect
+        val target = playable.indexOfFirst { it.uri == item.uri }.coerceAtLeast(0)
+        val loaded = controller.mediaItemCount == playable.size &&
+            (0 until controller.mediaItemCount).all {
+                controller.getMediaItemAt(it).mediaId == playable[it].uri
+            }
+        if (!loaded) {
+            controller.setMediaItems(playable.map(::mediaItemFor), target, C.TIME_UNSET)
+            controller.prepare()
+            controller.play()
+        } else if (controller.currentMediaItemIndex != target) {
+            controller.seekTo(target, C.TIME_UNSET)
+            controller.play()
+        }
+    }
+
+    DisposableEffect(player, queue) {
+        val controller = player ?: return@DisposableEffect onDispose { }
+        val listener = object : Player.Listener {
+            // Fires for "next" pressed in the notification as much as for a
+            // swipe here, so the screen follows whichever was used.
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val id = mediaItem?.mediaId ?: return
+                val where = queue.indexOfFirst { it.uri == id }
+                if (where >= 0 && where != index) onIndexChange(where)
+            }
+
+            override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
+                error = "This file cannot be played here (${e.errorCodeName}). " +
+                    "Try opening it in another app."
+            }
+        }
+        controller.addListener(listener)
+        onDispose { controller.removeListener(listener) }
     }
 
     // The always-on time. Polled rather than pushed: ExoPlayer reports position
@@ -137,10 +189,11 @@ fun PlayerSheet(
     // The control bar has its own time; showing both at once would double up.
     var controlsShown by remember { mutableStateOf(false) }
     LaunchedEffect(player, settings.alwaysShowTime) {
+        val controller = player ?: return@LaunchedEffect
         if (!settings.alwaysShowTime) return@LaunchedEffect
         while (true) {
-            positionMs = player.currentPosition
-            durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+            positionMs = controller.currentPosition
+            durationMs = controller.duration.takeIf { it != C.TIME_UNSET } ?: 0L
             delay(250)
         }
     }
@@ -148,38 +201,57 @@ fun PlayerSheet(
     // Applied as an effect rather than at construction so toggling the setting
     // takes hold on a video that is already playing.
     LaunchedEffect(player, settings.loopPlayback) {
-        player.repeatMode =
+        player?.repeatMode =
             if (settings.loopPlayback) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
 
-    // Stop playing when the app goes to the background. Without this the audio
-    // carries on over whatever the user switched to.
+    // Leaving the app pauses only when the user asked for that; otherwise the
+    // service keeps it going and the notification holds the controls.
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, settings.pauseOnLeave) {
+    DisposableEffect(lifecycleOwner, settings.backgroundPlayback, player) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && settings.pauseOnLeave) player.pause()
+            if (event == Lifecycle.Event.ON_STOP && !settings.backgroundPlayback) {
+                player?.pause()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Releasing matters: an ExoPlayer left alive holds a codec and keeps audio
-    // focus even after the dialog is gone.
-    DisposableEffect(player) {
+    DisposableEffect(Unit) {
         view.keepScreenOn = true
         onDispose {
             view.keepScreenOn = false
-            player.release()
             (context as? Activity)?.requestedOrientation =
                 ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
+    // Closing the viewer ends playback: with the screen gone there is nothing
+    // to say what is playing except the notification, and the user asked for
+    // it to stop. Backgrounding the app is the case that keeps playing.
+    val stopPlayback = {
+        player?.run {
+            stop()
+            clearMediaItems()
+        }
+        Unit
+    }
+    val close = {
+        stopPlayback()
+        onDismiss()
+    }
+    // Another app is about to play the same file; two at once helps nobody.
+    val openElsewhere = {
+        stopPlayback()
+        onOpenExternally()
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = close,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        BackHandler(enabled = true) { onDismiss() }
+        BackHandler(enabled = true) { close() }
 
         Box(
             modifier = Modifier
@@ -379,7 +451,7 @@ fun PlayerSheet(
                     .align(Alignment.TopCenter),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = close) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                 }
                 Column(Modifier.weight(1f)) {
@@ -444,7 +516,7 @@ fun PlayerSheet(
                 }) {
                     Icon(Icons.Filled.ScreenRotation, contentDescription = "Rotate", tint = Color.White)
                 }
-                IconButton(onClick = onOpenExternally) {
+                IconButton(onClick = openElsewhere) {
                     Icon(Icons.Filled.OpenInNew, contentDescription = "Open in another app", tint = Color.White)
                 }
             }
@@ -463,3 +535,20 @@ private fun formatTime(ms: Long): String {
     val s = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }
+
+/**
+ * Titles and the site name travel with the file, so the notification and lock
+ * screen say what is playing rather than showing a file path.
+ */
+private fun mediaItemFor(item: SavedItem): MediaItem = MediaItem.Builder()
+    .setMediaId(item.uri)
+    .setUri(Uri.parse(item.uri))
+    .setMediaMetadata(
+        MediaMetadata.Builder()
+            .setTitle(item.title.ifBlank { item.displayName })
+            .setArtist(item.sourceDomain.ifBlank { null })
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .build()
+    )
+    .build()

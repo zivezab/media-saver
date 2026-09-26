@@ -74,6 +74,8 @@ dependencies {
     // against SDK 36; later releases want 37.
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-ui:1.8.0")
+    // Background playback and the notification/lock-screen controls.
+    implementation("androidx.media3:media3-session:1.8.0")
 
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")

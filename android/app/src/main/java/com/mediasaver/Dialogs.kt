@@ -73,12 +73,13 @@ fun SettingsDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                SwitchRow("Pause when leaving the app", settings.pauseOnLeave) { v ->
-                    onChange { it.copy(pauseOnLeave = v) }
+                SwitchRow("Keep playing in the background", settings.backgroundPlayback) { v ->
+                    onChange { it.copy(backgroundPlayback = v) }
                 }
                 Text(
-                    "Stops playback when you switch to another app. Turn this off to " +
-                        "keep the audio going in the background.",
+                    "Carries on when you switch to another app or lock the screen, with " +
+                        "play, next, previous and stop in the notification shade. Turn " +
+                        "this off to pause instead whenever you leave the app.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

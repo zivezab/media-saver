@@ -28,8 +28,11 @@ object Settings {
         val autoDownloadBest: Boolean = false,
         /** Repeat a video when it reaches the end. */
         val loopPlayback: Boolean = false,
-        /** Pause playback when the app goes to the background. */
-        val pauseOnLeave: Boolean = true,
+        /**
+         * Keep playing when the app goes to the background, with controls in
+         * the notification shade. Off pauses instead.
+         */
+        val backgroundPlayback: Boolean = true,
         /**
          * Tapping a playing video brings up rewind, play/pause and forward. Off
          * leaves only the seek bar, and a tap pauses or resumes instead.
@@ -40,6 +43,8 @@ object Settings {
          * over the picture whenever its controls appear.
          */
         val alwaysShowTime: Boolean = false,
+        /** Sites whose group in the library is folded shut. */
+        val collapsedDomains: Set<String> = emptySet(),
     )
 
     private const val PREFS = "settings"
@@ -64,9 +69,13 @@ object Settings {
             folder = p.getString("folder", null)?.takeIf { it.isNotBlank() } ?: "Media Saver",
             autoDownloadBest = p.getBoolean("autoDownloadBest", false),
             loopPlayback = p.getBoolean("loopPlayback", false),
-            pauseOnLeave = p.getBoolean("pauseOnLeave", true),
+            // Carried over from the old "pause when leaving" switch, which said
+            // the same thing the other way round.
+            backgroundPlayback = p.getBoolean(
+                "backgroundPlayback", !p.getBoolean("pauseOnLeave", false)),
             playbackButtonsOnTap = p.getBoolean("playbackButtonsOnTap", true),
             alwaysShowTime = p.getBoolean("alwaysShowTime", false),
+            collapsedDomains = p.getStringSet("collapsedDomains", null).orEmpty(),
         )
     }
 
@@ -88,9 +97,10 @@ object Settings {
             .putString("folder", next.folder)
             .putBoolean("autoDownloadBest", next.autoDownloadBest)
             .putBoolean("loopPlayback", next.loopPlayback)
-            .putBoolean("pauseOnLeave", next.pauseOnLeave)
+            .putBoolean("backgroundPlayback", next.backgroundPlayback)
             .putBoolean("playbackButtonsOnTap", next.playbackButtonsOnTap)
             .putBoolean("alwaysShowTime", next.alwaysShowTime)
+            .putStringSet("collapsedDomains", next.collapsedDomains)
             .apply()
     }
 

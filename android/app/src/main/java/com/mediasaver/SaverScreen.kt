@@ -130,6 +130,9 @@ fun SaverScreen(viewModel: MainViewModel) {
             // Grouped by site when that is on, exactly as the cards are laid out.
             .let { libraryOrder(it, settings) }
     }
+    // What the viewer walks: the cards on screen, so a folded group's items are
+    // skipped even though the library still lists the group.
+    val onScreen = remember(visible, settings, query) { onScreenOrder(visible, settings, query) }
     val duplicateGroups = remember(saved) { DownloadHistory.duplicateGroups(saved) }
     val duplicateCount = duplicateGroups.sumOf { it.size - 1 }
 
@@ -369,9 +372,9 @@ fun SaverScreen(viewModel: MainViewModel) {
                 }
                 items(jobs, key = { it.id }) { job ->
                     JobCard(job) { uri ->
-                        val known = visible.indexOfFirst { it.uri == uri }
+                        val known = onScreen.indexOfFirst { it.uri == uri }
                         if (known >= 0) {
-                            viewerList = visible
+                            viewerList = onScreen
                             viewerIndex = known
                             return@JobCard
                         }
@@ -405,6 +408,13 @@ fun SaverScreen(viewModel: MainViewModel) {
                         else it.copy(sortBy = choice)
                     }
                 },
+                onToggleGroup = { domain ->
+                    Settings.update(context) {
+                        val next = it.collapsedDomains.toMutableSet()
+                        if (!next.remove(domain)) next += domain
+                        it.copy(collapsedDomains = next)
+                    }
+                },
                 onToggleLayout = {
                     Settings.update(context) {
                         it.copy(
@@ -414,8 +424,8 @@ fun SaverScreen(viewModel: MainViewModel) {
                     }
                 },
                 onPlay = { tapped ->
-                    viewerList = visible
-                    viewerIndex = visible.indexOfFirst { it.uri == tapped.uri }.coerceAtLeast(0)
+                    viewerList = onScreen
+                    viewerIndex = onScreen.indexOfFirst { it.uri == tapped.uri }.coerceAtLeast(0)
                 },
                 onShare = { SavedMedia.share(context, it.uri, it.mimeType) },
                 onDelete = { pendingDelete = it },
@@ -496,11 +506,9 @@ fun SaverScreen(viewModel: MainViewModel) {
             )
         } else {
             PlayerSheet(
-                item = item,
-                position = viewerIndex + 1,
-                total = viewerList.size,
-                onNext = next,
-                onPrevious = previous,
+                queue = viewerList,
+                index = viewerIndex,
+                onIndexChange = { viewerIndex = it },
                 onOpenExternally = openOutside,
                 onDismiss = close,
             )
