@@ -378,6 +378,37 @@ goes unnoticed until the phone stops playing anything else. Audio focus is taken
 properly, so a call pauses playback, and unplugging headphones pauses rather
 than surprising the room.
 
+## How it looks
+
+One place decides the look: `Theme.kt` holds the colours, the type scale, the
+spacing steps and the corner shapes, and `Components.kt` the two pieces every
+screen shares - a section label and a small chip.
+
+- **Colour comes from the accent.** The scheme used to be
+  `lightColorScheme(primary = seed, secondary = seed, tertiary = seed)`, which
+  left every *container* colour at Material's default purple: a blue accent gave
+  a blue "Find media" button beside a lavender "Play" button. `schemeFor(seed,
+  dark)` derives the whole scheme - containers, surfaces, outlines - from the
+  one colour.
+- **Contrast is computed, not eyeballed.** The primary tone is darkened until
+  white text on it clears WCAG's 4.5:1. A fixed lightness could not serve every
+  hue: green at the same value came out at 4.1:1. All four accents now clear
+  4.5:1 for text on the accent, and again for the accent against the page.
+- **Hierarchy by weight and size**, not colour: a card title is 15sp semi-bold,
+  its details 13sp in the muted on-surface tone, and a section label is 12sp in
+  capitals so it reads as a divider rather than competing with the titles under
+  it.
+- **Spacing** uses the `Space` steps (4/8/12/16/24) rather than a number picked
+  per screen.
+- **Actions sit on their own row** in a library card. Icons beside the title
+  squeezed the details line to "17.8 KB · S..." on a narrow phone at a large
+  system font size; the name and its details now own the full width.
+- **Destructive actions stay quiet.** Delete is an outline icon in the muted
+  tone, not a red one - the confirmation dialog is where deleting turns red.
+
+Checked at 411dp and at 360dp with the system font at 1.3x, in light and dark,
+list and grid.
+
 ## Settings
 
 Theme (system/light/dark), accent colour (dynamic, or a fixed palette), list or

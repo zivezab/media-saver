@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -148,7 +152,10 @@ fun SaverScreen(viewModel: MainViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Media Saver", fontWeight = FontWeight.SemiBold) },
+                title = { Text("Media Saver") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
                 actions = {
                     IconButton(onClick = { showAccounts = true }) {
                         Icon(
@@ -168,9 +175,15 @@ fun SaverScreen(viewModel: MainViewModel) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(
+                start = Space.lg,
+                end = Space.lg,
+                top = Space.sm,
+                // Clears the gesture bar, so the last card is never half-hidden.
+                bottom = Space.xl * 2,
+            ),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             item {
                 OutlinedTextField(
@@ -178,6 +191,8 @@ fun SaverScreen(viewModel: MainViewModel) {
                     onValueChange = viewModel::onUrlChange,
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("Paste a link to a post or video") },
+                    textStyle = MaterialTheme.typography.bodyLarge,
+                    shape = MaterialTheme.shapes.medium,
                     singleLine = true,
                     readOnly = busy,
                     enabled = !busy,
@@ -201,8 +216,12 @@ fun SaverScreen(viewModel: MainViewModel) {
             }
 
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Space.md),
+                    modifier = Modifier.height(52.dp),
+                ) {
                     OutlinedButton(
+                        modifier = Modifier.fillMaxHeight(),
                         onClick = {
                             val text = clipboard.getText()?.text
                             val url = Extractor.extractUrl(text)
@@ -218,7 +237,7 @@ fun SaverScreen(viewModel: MainViewModel) {
                     Button(
                         onClick = { keyboard?.hide(); viewModel.probe() },
                         enabled = !busy,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     ) {
                         if (busy) {
                             CircularProgressIndicator(
@@ -269,7 +288,7 @@ fun SaverScreen(viewModel: MainViewModel) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Or choose which to save", style = MaterialTheme.typography.titleSmall)
+                            Text("Or choose which to save", style = MaterialTheme.typography.titleMedium)
                             val allTicked = selectedItems.size == total
                             TextButton(onClick = {
                                 selectedItems.clear()
@@ -359,12 +378,7 @@ fun SaverScreen(viewModel: MainViewModel) {
 
             if (jobs.isNotEmpty()) {
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Downloads", style = MaterialTheme.typography.titleSmall)
+                    SectionHeader("Downloads", modifier = Modifier.padding(top = Space.sm)) {
                         if (jobs.any { !it.active }) {
                             TextButton(onClick = DownloadRepository::clearFinished) { Text("Clear finished") }
                         }
@@ -642,8 +656,8 @@ private fun PickerTile(
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .clickable(onClickLabel = if (selected) "Leave out" else "Include") { onToggle() },
         contentAlignment = Alignment.Center,
     ) {
@@ -672,7 +686,7 @@ private fun PickerTile(
             tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(6.dp)
+                .padding(Space.sm)
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(50))
                 .size(22.dp),
         )
@@ -683,13 +697,13 @@ private fun PickerTile(
 private fun Banner(text: String, error: Boolean = false) {
     Surface(
         color = if (error) MaterialTheme.colorScheme.errorContainer
-        else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(14.dp),
+        else MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
             text,
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.md),
             style = MaterialTheme.typography.bodyMedium,
             color = if (error) MaterialTheme.colorScheme.onErrorContainer
             else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -699,29 +713,41 @@ private fun Banner(text: String, error: Boolean = false) {
 
 @Composable
 private fun MediaCard(info: MediaInfo) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.padding(12.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Row(modifier = Modifier.padding(Space.md)) {
             Box(
                 modifier = Modifier
-                    .size(width = 108.dp, height = 72.dp)
-                    .clip(RoundedCornerShape(10.dp)),
+                    .size(width = 104.dp, height = 72.dp)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center,
             ) {
                 if (info.thumbnail != null) {
                     AsyncImage(
                         model = info.thumbnail,
                         contentDescription = null,
-                        modifier = Modifier.fillMaxWidth(),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Icon(Icons.Filled.Movie, contentDescription = null)
+                    Icon(
+                        Icons.Filled.Movie,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            Column {
+            Spacer(Modifier.width(Space.md))
+            Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
                 Text(
                     info.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -739,10 +765,10 @@ private fun MediaCard(info: MediaInfo) {
                     Formats.humanDuration(info.durationSec).ifBlank { null },
                 )
                 if (bits.isNotEmpty()) {
-                    Text(
+                    Chip(
                         bits.joinToString(" · "),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        container = MaterialTheme.colorScheme.primaryContainer,
+                        content = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
             }
@@ -752,30 +778,49 @@ private fun MediaCard(info: MediaInfo) {
 
 @Composable
 private fun OptionRow(option: Formats.Option, onClick: () -> Unit) {
+    // The recommended option is the filled one; the rest are quieter cards, so
+    // the eye lands on the choice most people want.
+    val recommended = option.recommended
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = if (option.recommended) {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        } else CardDefaults.cardColors(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = if (recommended) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Space.lg, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(option.title, style = MaterialTheme.typography.titleSmall)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    option.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (recommended) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurface,
+                )
                 if (option.subtitle.isNotBlank()) {
                     Text(
                         option.subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (recommended) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            Icon(Icons.Filled.Download, contentDescription = null)
+            Spacer(Modifier.width(Space.md))
+            Icon(
+                Icons.Filled.Download,
+                contentDescription = null,
+                tint = if (recommended) MaterialTheme.colorScheme.onPrimaryContainer
+                else MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }
@@ -783,40 +828,58 @@ private fun OptionRow(option: Formats.Option, onClick: () -> Unit) {
 @Composable
 private fun JobCard(job: DownloadJob, onPlay: (String) -> Unit) {
     val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(Modifier.padding(Space.lg)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     job.label,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    when (job.status) {
-                        DownloadJob.Status.DONE -> "Done"
-                        DownloadJob.Status.FAILED -> "Failed"
-                        DownloadJob.Status.CANCELLED -> "Stopped"
-                        else -> "${(job.progress * 100).toInt()}%"
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                )
+                Spacer(Modifier.width(Space.md))
+                // The state of a download is worth spotting at a glance, so it
+                // is a coloured chip rather than another line of grey text.
+                when (job.status) {
+                    DownloadJob.Status.DONE -> Chip(
+                        "Done",
+                        container = MaterialTheme.colorScheme.primaryContainer,
+                        content = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    DownloadJob.Status.FAILED -> Chip(
+                        "Failed",
+                        container = MaterialTheme.colorScheme.errorContainer,
+                        content = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    DownloadJob.Status.CANCELLED -> Chip("Stopped")
+                    else -> Chip("${(job.progress * 100).toInt()}%")
+                }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Space.md))
 
+            val bar = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(MaterialTheme.shapes.extraSmall)
             if (job.status == DownloadJob.Status.SAVING || (job.active && job.progress <= 0f)) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(modifier = bar)
             } else {
-                LinearProgressIndicator(progress = { job.progress }, modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(progress = { job.progress }, modifier = bar)
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Space.md))
 
             val message = when (job.status) {
                 DownloadJob.Status.DONE -> listOfNotNull(job.savedAs, job.savedLocation).joinToString(" · ")
@@ -844,15 +907,19 @@ private fun JobCard(job: DownloadJob, onPlay: (String) -> Unit) {
 
             val uri = job.savedUri
             if (job.status == DownloadJob.Status.DONE && uri != null) {
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(Modifier.height(Space.md))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Space.sm),
+                    modifier = Modifier.height(44.dp),
+                ) {
                     Button(
                         onClick = { onPlay(uri) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     ) { Text(if (job.mimeType?.startsWith("image/") == true) "View" else "Play") }
-                    OutlinedButton(onClick = { SavedMedia.share(context, uri, job.mimeType) }) {
-                        Text("Share")
-                    }
+                    OutlinedButton(
+                        onClick = { SavedMedia.share(context, uri, job.mimeType) },
+                        modifier = Modifier.fillMaxHeight(),
+                    ) { Text("Share") }
                 }
             }
         }

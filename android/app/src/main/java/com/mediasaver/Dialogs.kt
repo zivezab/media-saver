@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -36,7 +37,7 @@ fun SettingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Settings") },
+        title = { Text("Settings", style = MaterialTheme.typography.headlineSmall) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
 
@@ -54,54 +55,44 @@ fun SettingsDialog(
                 )
 
                 SectionLabel("Downloading")
-                SwitchRow("Download best quality automatically", settings.autoDownloadBest) { v ->
+                SwitchRow(
+                    "Download best quality automatically", settings.autoDownloadBest,
+                    description = "Skips the quality list: as soon as a link resolves, the best " +
+                        "video and audio available starts downloading.",
+                ) { v ->
                     onChange { it.copy(autoDownloadBest = v) }
                 }
-                Text(
-                    "Skips the quality list: as soon as a link resolves, the best " +
-                        "video and audio available starts downloading.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
 
                 SectionLabel("Playing")
-                SwitchRow("Loop videos", settings.loopPlayback) { v ->
+                SwitchRow(
+                    "Loop videos", settings.loopPlayback,
+                    description = "Restarts from the beginning when a video ends.",
+                ) { v ->
                     onChange { it.copy(loopPlayback = v) }
                 }
-                Text(
-                    "Restarts from the beginning when a video ends.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SwitchRow("Keep playing in the background", settings.backgroundPlayback) { v ->
-                    onChange { it.copy(backgroundPlayback = v) }
-                }
-                Text(
-                    "Carries on when you switch to another app or lock the screen, with " +
+                SwitchRow(
+                    "Keep playing in the background", settings.backgroundPlayback,
+                    description = "Carries on when you switch to another app or lock the screen, with " +
                         "play, next, previous and stop in the notification shade. Turn " +
                         "this off to pause instead whenever you leave the app.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SwitchRow("Show playback buttons on tap", settings.playbackButtonsOnTap) { v ->
-                    onChange { it.copy(playbackButtonsOnTap = v) }
+                ) { v ->
+                    onChange { it.copy(backgroundPlayback = v) }
                 }
-                Text(
-                    "Tapping a video shows rewind, play/pause and forward over it. Turn " +
+                SwitchRow(
+                    "Show playback buttons on tap", settings.playbackButtonsOnTap,
+                    description = "Tapping a video shows rewind, play/pause and forward over it. Turn " +
                         "this off to keep the picture clear: a tap then just pauses or " +
                         "resumes, and the seek bar still appears.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SwitchRow("Always show the time", settings.alwaysShowTime) { v ->
+                ) { v ->
+                    onChange { it.copy(playbackButtonsOnTap = v) }
+                }
+                SwitchRow(
+                    "Always show the time", settings.alwaysShowTime,
+                    description = "Keeps the playback time at the bottom of the video, and removes " +
+                        "the gray tint over the picture when the controls appear.",
+                ) { v ->
                     onChange { it.copy(alwaysShowTime = v) }
                 }
-                Text(
-                    "Keeps the playback time at the bottom of the video, and removes " +
-                        "the gray tint over the picture when the controls appear.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
 
                 SectionLabel("Library")
                 ChipRow(
@@ -162,9 +153,13 @@ fun SettingsDialog(
 
 @Composable
 private fun SectionLabel(text: String) {
-    Spacer(Modifier.height(14.dp))
-    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(20.dp))
+    Text(
+        text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable
@@ -173,7 +168,7 @@ private fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, onSelect: (
     // truncating the labels at the end.
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         options.forEach { (value, label) ->
             FilterChip(
@@ -186,18 +181,36 @@ private fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, onSelect: (
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(
+    label: String,
+    checked: Boolean,
+    description: String? = null,
+    onChange: (Boolean) -> Unit,
+) {
     Row(
         // The whole row toggles, not just the switch: aiming for a small switch
         // at the edge of a dialog is a poor target, and tapping the label doing
         // nothing reads as the setting being broken.
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onChange(!checked) },
+            .clickable { onChange(!checked) }
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Column(
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (description != null) {
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }

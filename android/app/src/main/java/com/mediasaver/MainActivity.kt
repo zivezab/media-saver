@@ -134,13 +134,15 @@ fun MediaSaverTheme(content: @Composable () -> Unit) {
                 Settings.Accent.ORANGE -> Color(0xFFB4541E)
                 else -> Color(0xFF2F6BFF)
             }
-            if (dark) {
-                darkColorScheme(primary = seed, secondary = seed, tertiary = seed)
-            } else {
-                lightColorScheme(primary = seed, secondary = seed, tertiary = seed)
-            }
+            // The whole scheme comes from the seed - see Theme.kt for why.
+            schemeFor(seed, dark)
         }
     }
 
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(
+        colorScheme = colors,
+        typography = MediaSaverTypography,
+        shapes = MediaSaverShapes,
+        content = content,
+    )
 }

@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,10 +26,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -47,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
@@ -70,21 +75,15 @@ fun LazyListScope.librarySection(
     if (entries.isEmpty() && query.isBlank()) return
 
     item(key = "library-header") {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Saved on this phone", style = MaterialTheme.typography.titleSmall)
-            Row {
-                SortMenu(settings, onSort)
-                IconButton(onClick = onToggleLayout) {
-                    Icon(
-                        if (settings.layout == Settings.Layout.GRID) Icons.Filled.ViewList
-                        else Icons.Filled.GridView,
-                        contentDescription = "Switch between list and grid",
-                    )
-                }
+        SectionHeader("Saved on this phone", modifier = Modifier.padding(top = Space.sm)) {
+            SortMenu(settings, onSort)
+            IconButton(onClick = onToggleLayout) {
+                Icon(
+                    if (settings.layout == Settings.Layout.GRID) Icons.Filled.ViewList
+                    else Icons.Filled.GridView,
+                    contentDescription = "Switch between list and grid",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -95,7 +94,15 @@ fun LazyListScope.librarySection(
             onValueChange = onQueryChange,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            shape = MaterialTheme.shapes.medium,
+            textStyle = MaterialTheme.typography.bodyLarge,
+            leadingIcon = {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { onQueryChange("") }) {
@@ -103,15 +110,24 @@ fun LazyListScope.librarySection(
                     }
                 }
             },
-            placeholder = { Text("Search saved media - * and ? work") },
+            placeholder = { Text("Search saved media") },
         )
     }
 
     if (duplicateCount > 0) {
         item(key = "library-dupes") {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                ),
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = Space.lg, end = Space.sm, top = Space.xs, bottom = Space.xs),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -129,9 +145,10 @@ fun LazyListScope.librarySection(
     if (entries.isEmpty()) {
         item(key = "library-empty") {
             Text(
-                "Nothing matches that search.",
-                style = MaterialTheme.typography.bodySmall,
+                "Nothing matches that search. Wildcards * and ? work too.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = Space.md),
             )
         }
         return
@@ -149,9 +166,12 @@ fun LazyListScope.librarySection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.small)
                     .clickable { onToggleGroup(group) }
-                    .padding(top = 6.dp),
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = Space.sm),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.sm),
             ) {
                 Icon(
                     if (folded) Icons.Filled.ChevronRight else Icons.Filled.ExpandMore,
@@ -160,9 +180,14 @@ fun LazyListScope.librarySection(
                     modifier = Modifier.size(20.dp),
                 )
                 Text(
-                    "$group  ·  ${groupItems.size}",
-                    style = MaterialTheme.typography.labelLarge,
+                    group,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
+                )
+                Chip(
+                    groupItems.size.toString(),
+                    container = MaterialTheme.colorScheme.primaryContainer,
+                    content = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
         }
@@ -303,8 +328,14 @@ private fun ListCard(
     onDelete: (SavedItem) -> Unit,
     onToggleFavorite: (SavedItem) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(Modifier.padding(Space.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MediaThumbnail(
                     item = item,
@@ -312,45 +343,64 @@ private fun ListCard(
                     showPlayBadge = true,
                     modifier = Modifier
                         .size(width = 96.dp, height = 64.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(MaterialTheme.shapes.small)
                         .clickable { onPlay(item) },
                 )
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
+                Spacer(Modifier.width(Space.md))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         item.displayName,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // One line: the file name is what identifies the item, and
+                    // a wrapping size-and-path line buried it.
                     Text(
                         subtitleFor(item, settings),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.height(Space.sm))
+            // Every action lives on this row, which leaves the row above for
+            // the name and its details alone - at a large font size on a narrow
+            // phone, icons beside the text squeezed it down to "17.8 KB · S...".
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilledTonalButton(
+                    onClick = { onPlay(item) },
+                    modifier = Modifier.weight(1f).height(42.dp),
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(Space.sm))
+                    Text(
+                        if (item.isImage) "View" else "Play",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { onShare(item) }) {
+                    Icon(
+                        Icons.Filled.Share,
+                        contentDescription = "Share",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 FavoriteButton(item, onToggleFavorite)
                 IconButton(onClick = { onDelete(item) }) {
                     Icon(
-                        Icons.Filled.Delete,
+                        Icons.Outlined.DeleteOutline,
                         contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error,
+                        // Quiet until it matters: the confirmation dialog is
+                        // where deleting turns red.
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { onPlay(item) }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (item.isImage) "View" else "Play")
-                }
-                OutlinedButton(onClick = { onShare(item) }) {
-                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Share")
                 }
             }
         }
@@ -366,7 +416,13 @@ private fun GridCard(
     onDelete: (SavedItem) -> Unit,
     onToggleFavorite: (SavedItem) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
         Column {
             MediaThumbnail(
                 item = item,
@@ -374,40 +430,55 @@ private fun GridCard(
                 showPlayBadge = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(110.dp)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .height(118.dp)
+                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
                     .clickable { onPlay(item) },
             )
-            Column(Modifier.padding(10.dp)) {
+            Column(
+                modifier = Modifier.padding(start = Space.md, end = Space.xs, top = Space.sm),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     item.displayName,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     subtitleFor(item, settings),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // Two cards sit side by side, so these icons are the smaller
+                // 20dp size and share the width evenly.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     IconButton(onClick = { onPlay(item) }) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = if (item.isImage) "View" else "Play")
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = if (item.isImage) "View" else "Play",
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
                     IconButton(onClick = { onShare(item) }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Share")
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = "Share",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
-                    FavoriteButton(item, onToggleFavorite)
+                    FavoriteButton(item, onToggleFavorite, size = 20.dp)
                     IconButton(onClick = { onDelete(item) }) {
                         Icon(
-                            Icons.Filled.Delete,
+                            Icons.Outlined.DeleteOutline,
                             contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                 }
@@ -421,20 +492,27 @@ private fun subtitleFor(item: SavedItem, settings: Settings.State): String {
     val bits = listOfNotNull(
         Formats.humanSize(item.sizeBytes),
         date,
-        if (settings.showFullPath) item.fullPath else item.location,
+        // The folder is the same for nearly everything, so it earns its place
+        // on this one line only when the user asks to see paths.
+        if (settings.showFullPath) item.fullPath else null,
     )
     return bits.joinToString(" · ")
 }
 
 /** Pins an item to the Favourites section, or takes it back out. */
 @Composable
-private fun FavoriteButton(item: SavedItem, onToggle: (SavedItem) -> Unit) {
+private fun FavoriteButton(
+    item: SavedItem,
+    onToggle: (SavedItem) -> Unit,
+    size: Dp = 24.dp,
+) {
     IconButton(onClick = { onToggle(item) }) {
         Icon(
             if (item.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
             contentDescription = if (item.favorite) "Remove from favourites" else "Add to favourites",
             tint = if (item.favorite) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(size),
         )
     }
 }
